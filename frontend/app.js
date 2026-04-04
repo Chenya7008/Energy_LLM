@@ -101,16 +101,26 @@ function renderSavedKeysList() {
     list.innerHTML = `<div class="saved-keys-empty">暂无保存的 Key</div>`;
     return;
   }
-  list.innerHTML = keys.map(k => `
-    <div class="saved-key-item" onclick="applyKeyEntry(${JSON.stringify(k).replace(/"/g,'&quot;')})">
+  list.innerHTML = keys.map((k, i) => `
+    <div class="saved-key-item" data-key-index="${i}">
       <div class="saved-key-info">
         <div class="saved-key-name">${escHtml(k.name)}</div>
         <div class="saved-key-meta">${escHtml(k.provider)} / ${escHtml(k.model)}</div>
       </div>
-      <button class="saved-key-delete" title="删除"
-        onclick="event.stopPropagation(); deleteSavedKey('${escHtml(k.name)}')">✕</button>
+      <button class="saved-key-delete" data-key-name="${escHtml(k.name)}" title="删除">✕</button>
     </div>
   `).join("");
+
+  // 事件委托，避免字符串拼接破坏点击
+  list.querySelectorAll(".saved-key-item").forEach((el, i) => {
+    el.addEventListener("click", () => applyKeyEntry(keys[i]));
+  });
+  list.querySelectorAll(".saved-key-delete").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      deleteSavedKey(btn.dataset.keyName);
+    });
+  });
 }
 
 function deleteSavedKey(name) {
@@ -417,11 +427,15 @@ function updateStatePanel(data) {
 
   if (template_matches && template_matches.length > 0) {
     tplCards.innerHTML = template_matches.map(t => `
-      <div class="template-card" onclick="applyTemplate(${JSON.stringify(t.name)})">
+      <div class="template-card" data-tpl-name="${escHtml(t.name)}">
         <div class="template-card-name">${escHtml(t.name)}</div>
         <div class="template-card-desc">${escHtml(t.description || "")}</div>
       </div>
     `).join("");
+    // 用事件委托，避免字符串拼接 onclick 被特殊字符破坏
+    tplCards.querySelectorAll(".template-card").forEach(card => {
+      card.addEventListener("click", () => applyTemplate(card.dataset.tplName));
+    });
     tplSection.classList.remove("hidden");
   } else {
     tplSection.classList.add("hidden");
