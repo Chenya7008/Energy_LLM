@@ -13,8 +13,7 @@ pip install -r backend\requirements.txt -q
 
 echo.
 echo [2/2] Starting Flask backend...
-echo       Backend: http://127.0.0.1:5000
-echo       Frontend: open  frontend\index.html  in your browser
+echo       打开浏览器访问: http://127.0.0.1:5000
 echo.
 echo  Press Ctrl+C to stop.
 echo  =====================================================

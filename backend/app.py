@@ -12,8 +12,9 @@ Endpoints:
   POST /api/reset            — clear state and conversation history
 """
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
+import os
 import anthropic
 import json
 import re
@@ -21,8 +22,14 @@ import traceback
 
 from battery_manager import BatteryManager
 
-app = Flask(__name__)
+FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
+
+app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
 CORS(app)
+
+@app.route("/")
+def index():
+    return send_from_directory(FRONTEND_DIR, "index.html")
 
 # ── Session globals (single-user local tool) ──────────────────────────
 _api_token: str = ""

@@ -2,7 +2,7 @@
    Energy LLM — Battery Configurator Frontend
    ══════════════════════════════════════════════════════════════════ */
 
-const API = "http://127.0.0.1:5000/api";
+const API = "/api";
 
 const COOLING_LABELS = {
   0: "S-type",
