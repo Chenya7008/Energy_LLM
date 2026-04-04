@@ -12,6 +12,7 @@ const COOLING_LABELS = {
 };
 
 let _lastHeaderContent = "";
+let _lastTemplateMatches = [];   // 保留最近一次模板列表，选模板后不消失
 
 // ── Boot ─────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
@@ -285,12 +286,17 @@ async function manualUpdateSlot(slot, value) {
 async function applyTemplate(name) {
   try {
     const res = await post("/apply-template", { name });
+    // 保留上次的模板列表，让用户可以继续换选
     updateStatePanel({
       state: res.state,
       missing_slots: res.missing_slots,
       conflicts: res.conflicts,
       derived: res.derived,
-      template_matches: [],
+      template_matches: _lastTemplateMatches,
+    });
+    // 高亮当前选中的卡片
+    document.querySelectorAll(".template-card").forEach(card => {
+      card.classList.toggle("selected", card.dataset.tplName === name);
     });
     appendMsg("ai", `✅ Template applied: **${name}**\n\n` +
       (res.derived.length ? "**Derived**: " + res.derived.join("; ") : "")
@@ -426,20 +432,19 @@ function updateStatePanel(data) {
   const tplCards   = document.getElementById("templateCards");
 
   if (template_matches && template_matches.length > 0) {
+    _lastTemplateMatches = template_matches;   // 记住最新列表
     tplCards.innerHTML = template_matches.map(t => `
       <div class="template-card" data-tpl-name="${escHtml(t.name)}">
         <div class="template-card-name">${escHtml(t.name)}</div>
         <div class="template-card-desc">${escHtml(t.description || "")}</div>
       </div>
     `).join("");
-    // 用事件委托，避免字符串拼接 onclick 被特殊字符破坏
     tplCards.querySelectorAll(".template-card").forEach(card => {
       card.addEventListener("click", () => applyTemplate(card.dataset.tplName));
     });
     tplSection.classList.remove("hidden");
-  } else {
-    tplSection.classList.add("hidden");
   }
+  // template_matches 为空时不隐藏，保留上次列表（用户可继续换选）
 }
 
 function renderParam(slot, value, required, missing_slots, rawSlot) {
