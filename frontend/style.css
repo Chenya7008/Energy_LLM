@@ -101,6 +101,116 @@ body {
 .token-status.ok   { color: var(--ok); }
 .token-status.fail { color: var(--danger); }
 
+/* ── Saved Keys Manager ──────────────────────────────────────────── */
+.saved-keys-wrap {
+  position: relative;
+}
+
+.btn-saved-keys {
+  padding: 5px 9px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color .15s;
+}
+.btn-saved-keys:hover { border-color: var(--accent); }
+
+.key-manager-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 300px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  z-index: 200;
+  padding: 10px;
+}
+
+.km-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+.km-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 8px;
+  opacity: .7;
+}
+
+.saved-keys-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.saved-key-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color .15s;
+  gap: 6px;
+}
+.saved-key-item:hover { border-color: var(--accent); }
+
+.saved-key-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.saved-key-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.saved-key-meta {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.saved-key-delete {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  transition: color .15s, background .15s;
+}
+.saved-key-delete:hover { color: var(--danger); background: rgba(239,68,68,.1); }
+
+.saved-keys-empty {
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: center;
+  padding: 10px 0;
+}
+
 /* ── Main Layout ─────────────────────────────────────────────────── */
 .layout {
   display: grid;

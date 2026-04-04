@@ -17,6 +17,15 @@
     <span>Energy LLM — Battery Pack Configurator</span>
   </div>
   <div class="topbar-token">
+    <!-- 已保存的 Key 快速切换 -->
+    <div class="saved-keys-wrap">
+      <button class="btn-saved-keys" onclick="toggleKeyManager()" title="已保存的 API Key">🔑</button>
+      <div id="keyManagerPanel" class="key-manager-panel hidden">
+        <div class="km-title">已保存的 API Key</div>
+        <div id="savedKeysList" class="saved-keys-list"></div>
+        <div class="km-hint">点击名称快速加载，点击 ✕ 删除</div>
+      </div>
+    </div>
     <!-- 平台选择 -->
     <select id="providerSelect" onchange="onProviderChange()">
       <option value="anthropic">Anthropic (Claude)</option>
@@ -26,11 +35,13 @@
       <option value="custom">自定义 / Custom</option>
     </select>
     <!-- 模型（随平台切换） -->
-    <input id="modelInput" type="text" placeholder="模型名称" value="claude-sonnet-4-6" style="width:160px"/>
+    <input id="modelInput" type="text" placeholder="模型名称" value="claude-sonnet-4-6" style="width:150px"/>
     <!-- 自定义 Base URL（仅 custom 显示） -->
-    <input id="baseUrlInput" type="text" placeholder="Base URL (e.g. https://…/v1)" class="hidden" style="width:200px"/>
+    <input id="baseUrlInput" type="text" placeholder="Base URL (e.g. https://…/v1)" class="hidden" style="width:190px"/>
     <!-- API Key -->
-    <input id="tokenInput" type="password" placeholder="API Key…" autocomplete="off" style="width:220px"/>
+    <input id="tokenInput" type="password" placeholder="API Key…" autocomplete="off" style="width:200px"/>
+    <!-- 保存名称 -->
+    <input id="saveNameInput" type="text" placeholder="保存为…" style="width:90px" title="填写名称后连接，自动保存"/>
     <button id="tokenBtn" onclick="setToken()">连接</button>
     <span id="tokenStatus" class="token-status"></span>
   </div>

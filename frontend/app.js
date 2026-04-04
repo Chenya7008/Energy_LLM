@@ -15,7 +15,19 @@ let _lastHeaderContent = "";
 
 // ── Boot ─────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
-  fetchState();            // load initial state (if backend already running)
+  loadLastUsedKey();       // 自动填入上次使用的 Key
+  renderSavedKeysList();   // 渲染已保存列表
+  fetchState();
+});
+
+// 点击面板外关闭 Key 管理器
+document.addEventListener("click", (e) => {
+  const panel = document.getElementById("keyManagerPanel");
+  const btn   = document.querySelector(".btn-saved-keys");
+  if (!panel.classList.contains("hidden") &&
+      !panel.contains(e.target) && e.target !== btn) {
+    panel.classList.add("hidden");
+  }
 });
 
 // ── 平台默认模型 ──────────────────────────────────────────────────────
@@ -41,12 +53,84 @@ function onProviderChange() {
   urlEl.classList.toggle("hidden", provider !== "custom");
 }
 
+// ══════════════════════════════════════════════════════════════════════
+//  KEY 管理（localStorage）
+// ══════════════════════════════════════════════════════════════════════
+const LS_KEYS  = "energyllm_saved_keys";
+const LS_LAST  = "energyllm_last_key";
+
+function getSavedKeys() {
+  try { return JSON.parse(localStorage.getItem(LS_KEYS) || "[]"); }
+  catch { return []; }
+}
+
+function saveKeyEntry(entry) {
+  const keys = getSavedKeys().filter(k => k.name !== entry.name);
+  keys.unshift(entry);          // 最新放最前
+  localStorage.setItem(LS_KEYS, JSON.stringify(keys));
+}
+
+function deleteKeyEntry(name) {
+  const keys = getSavedKeys().filter(k => k.name !== name);
+  localStorage.setItem(LS_KEYS, JSON.stringify(keys));
+}
+
+function loadLastUsedKey() {
+  try {
+    const last = JSON.parse(localStorage.getItem(LS_LAST) || "null");
+    if (!last) return;
+    applyKeyEntry(last, false);   // 填入表单但不连接
+  } catch {}
+}
+
+function applyKeyEntry(entry, connect = true) {
+  document.getElementById("providerSelect").value = entry.provider || "anthropic";
+  document.getElementById("modelInput").value     = entry.model    || "";
+  document.getElementById("tokenInput").value     = entry.token    || "";
+  document.getElementById("saveNameInput").value  = entry.name     || "";
+  const urlEl = document.getElementById("baseUrlInput");
+  urlEl.value = entry.base_url || "";
+  urlEl.classList.toggle("hidden", entry.provider !== "custom");
+  if (connect) setToken();
+}
+
+function renderSavedKeysList() {
+  const list = document.getElementById("savedKeysList");
+  const keys = getSavedKeys();
+  if (!keys.length) {
+    list.innerHTML = `<div class="saved-keys-empty">暂无保存的 Key</div>`;
+    return;
+  }
+  list.innerHTML = keys.map(k => `
+    <div class="saved-key-item" onclick="applyKeyEntry(${JSON.stringify(k).replace(/"/g,'&quot;')})">
+      <div class="saved-key-info">
+        <div class="saved-key-name">${escHtml(k.name)}</div>
+        <div class="saved-key-meta">${escHtml(k.provider)} / ${escHtml(k.model)}</div>
+      </div>
+      <button class="saved-key-delete" title="删除"
+        onclick="event.stopPropagation(); deleteSavedKey('${escHtml(k.name)}')">✕</button>
+    </div>
+  `).join("");
+}
+
+function deleteSavedKey(name) {
+  deleteKeyEntry(name);
+  renderSavedKeysList();
+}
+
+function toggleKeyManager() {
+  const panel = document.getElementById("keyManagerPanel");
+  renderSavedKeysList();
+  panel.classList.toggle("hidden");
+}
+
 // ── Token / 连接 ──────────────────────────────────────────────────────
 async function setToken() {
   const token    = document.getElementById("tokenInput").value.trim();
   const provider = document.getElementById("providerSelect").value;
   const model    = document.getElementById("modelInput").value.trim();
   const base_url = document.getElementById("baseUrlInput").value.trim();
+  const saveName = document.getElementById("saveNameInput").value.trim();
   const statusEl = document.getElementById("tokenStatus");
 
   if (!token) {
@@ -61,6 +145,12 @@ async function setToken() {
       statusEl.textContent = `✓ ${res.provider} / ${res.model}`;
       statusEl.className = "token-status ok";
       document.getElementById("tokenBtn").textContent = "重新连接";
+
+      // 保存到 localStorage
+      const entry = { name: saveName || provider, provider, model, token, base_url };
+      if (saveName) saveKeyEntry(entry);                         // 有名称 → 持久保存
+      localStorage.setItem(LS_LAST, JSON.stringify(entry));     // 始终记住最后一次
+      renderSavedKeysList();
     }
   } catch (e) {
     statusEl.textContent = "✗ 连接失败";
