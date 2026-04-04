@@ -377,22 +377,17 @@ function setParamValue(id, value, required) {
 }
 
 function syncInputs(state) {
-  // Only update input fields that are currently empty (don't override user typing)
+  // 始终用实际状态值同步输入框，保持左右一致
   const numFields = ["total_cells","num_groups","cells_per_group","coolant_channels"];
   for (const f of numFields) {
     const el = document.getElementById(`input-${f}`);
-    if (el && state[f] !== null && el.value === "") {
-      el.value = state[f];
-    }
+    if (el) el.value = state[f] !== null ? state[f] : "";
   }
   const ct = document.getElementById("input-cooling_type");
-  if (ct && state.cooling_type !== null && ct.value === "") {
-    ct.value = state.cooling_type;
-  }
+  if (ct) ct.value = state.cooling_type !== null ? state.cooling_type : "";
   const cs = document.getElementById("input-coolant_size");
-  if (cs && state.coolant_size && state.coolant_size.length > 0 && cs.value === "") {
-    cs.value = state.coolant_size.join(", ");
-  }
+  if (cs) cs.value = state.coolant_size && state.coolant_size.length > 0
+    ? state.coolant_size.join(", ") : "";
 }
 
 // ══════════════════════════════════════════════════════════════════════
