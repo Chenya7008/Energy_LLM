@@ -18,27 +18,51 @@ document.addEventListener("DOMContentLoaded", () => {
   fetchState();            // load initial state (if backend already running)
 });
 
-// ── Token ─────────────────────────────────────────────────────────────
+// ── 平台默认模型 ──────────────────────────────────────────────────────
+const PROVIDER_MODELS = {
+  anthropic: ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001"],
+  openai:    ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
+  deepseek:  ["deepseek-chat", "deepseek-reasoner"],
+  custom:    [],
+};
+
+function onProviderChange() {
+  const provider = document.getElementById("providerSelect").value;
+  const modelEl  = document.getElementById("modelInput");
+  const urlEl    = document.getElementById("baseUrlInput");
+
+  // 自动填入默认模型
+  const defaults = PROVIDER_MODELS[provider];
+  if (defaults && defaults.length > 0) modelEl.value = defaults[0];
+  else modelEl.value = "";
+
+  // 仅 custom 显示 Base URL 输入框
+  urlEl.classList.toggle("hidden", provider !== "custom");
+}
+
+// ── Token / 连接 ──────────────────────────────────────────────────────
 async function setToken() {
-  const token = document.getElementById("tokenInput").value.trim();
-  const model = document.getElementById("modelSelect").value;
+  const token    = document.getElementById("tokenInput").value.trim();
+  const provider = document.getElementById("providerSelect").value;
+  const model    = document.getElementById("modelInput").value.trim();
+  const base_url = document.getElementById("baseUrlInput").value.trim();
   const statusEl = document.getElementById("tokenStatus");
 
   if (!token) {
-    statusEl.textContent = "⚠ empty";
+    statusEl.textContent = "⚠ Key 为空";
     statusEl.className = "token-status fail";
     return;
   }
 
   try {
-    const res = await post("/set-token", { token, model });
+    const res = await post("/set-token", { token, provider, model, base_url });
     if (res.success) {
-      statusEl.textContent = `✓ ${res.model}`;
+      statusEl.textContent = `✓ ${res.provider} / ${res.model}`;
       statusEl.className = "token-status ok";
-      document.getElementById("tokenBtn").textContent = "Reconnect";
+      document.getElementById("tokenBtn").textContent = "重新连接";
     }
   } catch (e) {
-    statusEl.textContent = "✗ error";
+    statusEl.textContent = "✗ 连接失败";
     statusEl.className = "token-status fail";
   }
 }

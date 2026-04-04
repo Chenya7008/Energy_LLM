@@ -1,21 +1,26 @@
 """
 Flask backend for the Energy LLM Battery Configurator.
 
+支持多平台 LLM：
+  - Anthropic (Claude)
+  - OpenAI (GPT)
+  - DeepSeek (OpenAI-compatible)
+  - 任意 OpenAI 兼容接口（自定义 Base URL）
+
 Endpoints:
-  POST /api/set-token        — save Claude API key for this session
-  GET  /api/state            — current battery state + token status
-  POST /api/chat             — send user message → LLM → BatteryManager
-  POST /api/update-slot      — user fills a slot directly via UI
-  POST /api/apply-template   — user picks a template card
-  GET  /api/templates        — list all available templates
-  POST /api/generate-header  — produce constants.h text
-  POST /api/reset            — clear state and conversation history
+  POST /api/set-token        — 保存 API Key、平台、模型
+  GET  /api/state            — 当前电池配置状态
+  POST /api/chat             — 发送消息 → LLM → BatteryManager
+  POST /api/update-slot      — 通过 UI 手动填写槽位
+  POST /api/apply-template   — 应用模板
+  GET  /api/templates        — 获取所有模板
+  POST /api/generate-header  — 生成 constants.h
+  POST /api/reset            — 重置状态和对话历史
 """
 
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import os
-import anthropic
 import json
 import re
 import traceback
@@ -27,17 +32,33 @@ FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
 app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
 CORS(app)
 
+
 @app.route("/")
 def index():
     return send_from_directory(FRONTEND_DIR, "index.html")
 
-# ── Session globals (single-user local tool) ──────────────────────────
-_api_token: str = ""
-_model: str = "claude-sonnet-4-6"
-_battery: BatteryManager = BatteryManager()
-_history: list = []          # Claude conversation history
 
-# ── System prompt (from EMIOT.pdf) ───────────────────────────────────
+# ── Session globals ────────────────────────────────────────────────────
+_api_token: str = ""
+_provider: str = "anthropic"   # anthropic | openai | deepseek | custom
+_model: str = "claude-sonnet-4-6"
+_base_url: str = ""            # 仅 custom 时使用
+_battery: BatteryManager = BatteryManager()
+_history: list = []
+
+# ── 各平台默认模型 ────────────────────────────────────────────────────
+PROVIDER_DEFAULTS = {
+    "anthropic": "claude-sonnet-4-6",
+    "openai":    "gpt-4o",
+    "deepseek":  "deepseek-chat",
+    "custom":    "gpt-4o",
+}
+
+PROVIDER_BASE_URLS = {
+    "deepseek": "https://api.deepseek.com",
+}
+
+# ── System Prompt ─────────────────────────────────────────────────────
 SYSTEM_PROMPT = """# ROLE
 You are a highly precise Data Extraction Assistant for a Battery Thermal Simulation System. Your ONLY job is to convert natural language descriptions of battery pack configurations into a strictly formatted JSON object. You are a strict parser: do not calculate, do not infer, and do not guess.
 
@@ -89,37 +110,72 @@ Output ONLY a valid JSON object. No markdown fences, no explanation, no extra te
 }"""
 
 
-# ── Helpers ───────────────────────────────────────────────────────────
+# ── LLM 调用（多平台统一入口）─────────────────────────────────────────
+
+def _call_llm(user_message: str) -> str:
+    """根据当前 _provider 调用对应平台，返回原始文本。"""
+
+    if _provider == "anthropic":
+        import anthropic as _anthropic
+        client = _anthropic.Anthropic(api_key=_api_token)
+        response = client.messages.create(
+            model=_model,
+            max_tokens=1024,
+            system=SYSTEM_PROMPT,
+            messages=_history,
+        )
+        return response.content[0].text
+
+    else:
+        # OpenAI / DeepSeek / Custom — 全部走 openai 兼容接口
+        from openai import OpenAI
+        kwargs = {"api_key": _api_token}
+
+        if _provider == "deepseek":
+            kwargs["base_url"] = PROVIDER_BASE_URLS["deepseek"]
+        elif _provider == "custom" and _base_url:
+            kwargs["base_url"] = _base_url
+
+        client = OpenAI(**kwargs)
+
+        # 把 system prompt 拼入 messages（OpenAI 格式）
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}] + _history
+
+        response = client.chat.completions.create(
+            model=_model,
+            max_tokens=1024,
+            messages=messages,
+        )
+        return response.choices[0].message.content
+
+
+# ── 工具函数 ──────────────────────────────────────────────────────────
 
 def _extract_json(text: str) -> dict:
-    """Parse JSON from LLM output, tolerating markdown code fences."""
     text = text.strip()
-    # Strip ```json ... ``` fences if present
     text = re.sub(r"^```(?:json)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
-    return json.loads(text)
+    # 有时模型会在 JSON 前后加文字，尝试提取 {...}
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        m = re.search(r"\{.*\}", text, re.DOTALL)
+        if m:
+            return json.loads(m.group())
+        raise
 
 
 def _format_chat_reply(result: dict, llm_json: dict) -> str:
-    """Build a human-readable assistant reply from BatteryManager result."""
     parts = []
-
     intent = llm_json.get("intent", {}).get("type", "custom")
     params = llm_json.get("simulation_parameters", {})
 
-    # What was extracted
-    extracted = {
-        k: v for k, v in params.items()
-        if v is not None and k != "coolant_size"
-    }
+    extracted = {k: v for k, v in params.items() if v is not None and k != "coolant_size"}
     if params.get("coolant_size"):
         extracted["coolant_size"] = params["coolant_size"]
 
     if extracted:
-        names = list(extracted.keys())
-        parts.append("**Extracted**: " + ", ".join(
-            f"`{k}={v}`" for k, v in extracted.items()
-        ))
+        parts.append("**Extracted**: " + ", ".join(f"`{k}={v}`" for k, v in extracted.items()))
     else:
         if intent == "template":
             kw = llm_json.get("intent", {}).get("search_keyword", "")
@@ -129,62 +185,61 @@ def _format_chat_reply(result: dict, llm_json: dict) -> str:
         else:
             parts.append("No explicit parameters found in your input.")
 
-    # Derived values
     for d in result.get("derived", []):
         parts.append(f"**Derived**: {d}")
 
-    # Constraints
     c = result.get("constraints", {})
     if c:
         hints = []
-        if "max_temp" in c:
-            hints.append(f"max temp {c['max_temp']}°C")
-        if "current" in c:
-            hints.append(f"discharge {c['current']} A")
-        if "power" in c:
-            hints.append(f"power {c['power']} W")
+        if "max_temp" in c: hints.append(f"max temp {c['max_temp']}°C")
+        if "current"  in c: hints.append(f"discharge {c['current']} A")
+        if "power"    in c: hints.append(f"power {c['power']} W")
         parts.append("**Performance constraint**: " + ", ".join(hints))
 
-    # Conflicts
     for conf in result.get("conflicts", []):
         parts.append(f"⚠️ **Conflict**: {conf}")
 
-    # Still missing
     missing = result.get("missing_slots", [])
     if missing:
         parts.append(
-            "**Still needed**: " +
-            ", ".join(f"`{m}`" for m in missing) +
+            "**Still needed**: " + ", ".join(f"`{m}`" for m in missing) +
             " — fill them in the panel on the right."
         )
     else:
         parts.append("✅ **All required parameters are set.** You can generate the header file.")
 
-    # Template suggestions
     tpls = result.get("template_matches", [])
     if tpls:
-        names_list = ", ".join(t["name"] for t in tpls[:4])
         parts.append(
-            f"💡 **Template suggestions**: {names_list} — click one on the right to apply."
+            "💡 **Template suggestions**: " +
+            ", ".join(t["name"] for t in tpls[:4]) +
+            " — click one on the right to apply."
         )
 
     return "\n\n".join(parts)
 
 
-# ── API routes ────────────────────────────────────────────────────────
+# ── API 路由 ──────────────────────────────────────────────────────────
 
 @app.route("/api/set-token", methods=["POST"])
 def set_token():
-    global _api_token, _model
+    global _api_token, _provider, _model, _base_url
     data = request.json or {}
-    token = data.get("token", "").strip()
-    model = data.get("model", "").strip()
+
+    token    = data.get("token", "").strip()
+    provider = data.get("provider", "anthropic").strip()
+    model    = data.get("model", "").strip()
+    base_url = data.get("base_url", "").strip()
+
     if not token:
         return jsonify({"error": "Token cannot be empty"}), 400
+
     _api_token = token
-    if model:
-        _model = model
-    return jsonify({"success": True, "model": _model})
+    _provider  = provider if provider in PROVIDER_DEFAULTS else "anthropic"
+    _model     = model if model else PROVIDER_DEFAULTS[_provider]
+    _base_url  = base_url
+
+    return jsonify({"success": True, "provider": _provider, "model": _model})
 
 
 @app.route("/api/state", methods=["GET"])
@@ -193,6 +248,7 @@ def get_state():
         "state": _battery.state,
         "missing_slots": _battery.get_missing_slots(),
         "has_token": bool(_api_token),
+        "provider": _provider,
         "model": _model,
     })
 
@@ -207,68 +263,59 @@ def chat():
     global _history
 
     if not _api_token:
-        return jsonify({"error": "API token not set. Please enter your token first."}), 401
+        return jsonify({"error": "请先设置 API Token。"}), 401
 
     data = request.json or {}
     user_message = data.get("message", "").strip()
     if not user_message:
-        return jsonify({"error": "Message is empty"}), 400
+        return jsonify({"error": "消息不能为空"}), 400
+
+    _history.append({"role": "user", "content": user_message})
 
     try:
-        client = anthropic.Anthropic(api_key=_api_token)
-
-        _history.append({"role": "user", "content": user_message})
-
-        response = client.messages.create(
-            model=_model,
-            max_tokens=1024,
-            system=SYSTEM_PROMPT,
-            messages=_history,
-        )
-        raw = response.content[0].text
+        raw = _call_llm(user_message)
         _history.append({"role": "assistant", "content": raw})
-
-        try:
-            llm_json = _extract_json(raw)
-        except (json.JSONDecodeError, ValueError) as e:
-            return jsonify({
-                "error": f"LLM returned non-JSON output: {e}",
-                "raw": raw,
-            }), 500
-
-        result = _battery.process_llm_json(llm_json)
-        chat_reply = _format_chat_reply(result, llm_json)
-
-        return jsonify({
-            "success": True,
-            "chat_reply": chat_reply,
-            "llm_json": llm_json,
-            "state": _battery.state,
-            "missing_slots": result["missing_slots"],
-            "conflicts": result["conflicts"],
-            "derived": result["derived"],
-            "template_matches": result.get("template_matches", []),
-            "messages": result.get("messages", []),
-        })
-
-    except anthropic.AuthenticationError:
-        return jsonify({"error": "Invalid API token. Please check your key."}), 401
-    except anthropic.RateLimitError:
-        return jsonify({"error": "Rate limit reached. Please wait and try again."}), 429
     except Exception as e:
+        _history.pop()   # 回滚 user message
+        err = str(e)
+        # 统一认证错误提示
+        if "auth" in err.lower() or "401" in err or "key" in err.lower():
+            return jsonify({"error": f"API Key 无效，请检查后重试。({_provider})"}), 401
+        if "rate" in err.lower() or "429" in err:
+            return jsonify({"error": "请求频率超限，请稍后重试。"}), 429
         traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": err}), 500
+
+    try:
+        llm_json = _extract_json(raw)
+    except (json.JSONDecodeError, ValueError) as e:
+        return jsonify({"error": f"LLM 返回了非 JSON 内容: {e}", "raw": raw}), 500
+
+    result = _battery.process_llm_json(llm_json)
+    chat_reply = _format_chat_reply(result, llm_json)
+
+    return jsonify({
+        "success": True,
+        "chat_reply": chat_reply,
+        "llm_json": llm_json,
+        "state": _battery.state,
+        "missing_slots": result["missing_slots"],
+        "conflicts": result["conflicts"],
+        "derived": result["derived"],
+        "template_matches": result.get("template_matches", []),
+        "messages": result.get("messages", []),
+    })
 
 
 @app.route("/api/update-slot", methods=["POST"])
 def update_slot():
     data = request.json or {}
-    slot = data.get("slot")
+    slot  = data.get("slot")
     value = data.get("value")
 
-    if slot not in ["total_cells", "num_groups", "cells_per_group",
-                    "cooling_type", "coolant_channels", "coolant_size"]:
-        return jsonify({"error": f"Unknown slot: {slot}"}), 400
+    if slot not in ["total_cells","num_groups","cells_per_group",
+                    "cooling_type","coolant_channels","coolant_size"]:
+        return jsonify({"error": f"未知槽位: {slot}"}), 400
 
     result = _battery.update_slot(slot, value)
     return jsonify({
@@ -283,8 +330,7 @@ def update_slot():
 @app.route("/api/apply-template", methods=["POST"])
 def apply_template():
     data = request.json or {}
-    name = data.get("name", "")
-    result = _battery.apply_template_by_name(name)
+    result = _battery.apply_template_by_name(data.get("name", ""))
     if "error" in result:
         return jsonify(result), 404
     return jsonify({
@@ -300,8 +346,7 @@ def apply_template():
 @app.route("/api/generate-header", methods=["POST"])
 def generate_header():
     try:
-        content = _battery.generate_header()
-        return jsonify({"success": True, "content": content})
+        return jsonify({"success": True, "content": _battery.generate_header()})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
@@ -316,8 +361,7 @@ def reset():
 
 if __name__ == "__main__":
     print("=" * 55)
-    print("  Energy LLM Battery Configurator — Backend")
+    print("  Energy LLM Battery Configurator")
     print("  http://127.0.0.1:5000")
-    print("  Open frontend/index.html in your browser")
     print("=" * 55)
     app.run(debug=True, port=5000)

@@ -60,8 +60,8 @@ body {
   flex-wrap: nowrap;
 }
 
-.topbar-token input[type="password"] {
-  width: 280px;
+.topbar-token input[type="password"],
+.topbar-token input[type="text"] {
   padding: 6px 10px;
   background: var(--bg);
   border: 1px solid var(--border);
