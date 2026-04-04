@@ -40,7 +40,7 @@ def index():
 
 # ── Session globals ────────────────────────────────────────────────────
 _api_token: str = ""
-_provider: str = "anthropic"   # anthropic | openai | deepseek | custom
+_provider: str = "anthropic"   # anthropic | openai | deepseek | gemini | custom
 _model: str = "claude-sonnet-4-6"
 _base_url: str = ""            # 仅 custom 时使用
 _battery: BatteryManager = BatteryManager()
@@ -51,6 +51,7 @@ PROVIDER_DEFAULTS = {
     "anthropic": "claude-sonnet-4-6",
     "openai":    "gpt-4o",
     "deepseek":  "deepseek-chat",
+    "gemini":    "gemini-2.0-flash",
     "custom":    "gpt-4o",
 }
 
@@ -125,6 +126,34 @@ def _call_llm(user_message: str) -> str:
             messages=_history,
         )
         return response.content[0].text
+
+    elif _provider == "gemini":
+        from google import genai
+        from google.genai import types
+        client = genai.Client(api_key=_api_token)
+
+        # 把历史对话转成 Gemini Content 格式
+        gemini_history = []
+        for msg in _history[:-1]:   # 除最后一条 user message
+            role = "user" if msg["role"] == "user" else "model"
+            gemini_history.append(
+                types.Content(role=role, parts=[types.Part(text=msg["content"])])
+            )
+
+        # 最新 user message
+        latest = _history[-1]["content"]
+
+        response = client.models.generate_content(
+            model=_model,
+            contents=gemini_history + [
+                types.Content(role="user", parts=[types.Part(text=latest)])
+            ],
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+                max_output_tokens=1024,
+            ),
+        )
+        return response.text
 
     else:
         # OpenAI / DeepSeek / Custom — 全部走 openai 兼容接口
