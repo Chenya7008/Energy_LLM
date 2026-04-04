@@ -99,7 +99,12 @@ async function sendMessage() {
     }
   } catch (e) {
     thinkingEl.remove();
-    appendMsg("system", `❌ Network error — is the backend running? (${e.message})`);
+    // 区分：真正的网络断连 vs 后端返回的 API 错误
+    const isNetworkDown = e instanceof TypeError && e.message.includes("fetch");
+    const msg = isNetworkDown
+      ? `❌ 无法连接后端，请确认 start.bat 已运行。`
+      : `❌ ${e.message}`;
+    appendMsg("system", msg);
   } finally {
     setLoading(false);
   }
@@ -486,7 +491,8 @@ async function post(path, body = {}) {
     body: JSON.stringify(body),
   });
   const data = await r.json();
-  if (!r.ok && data.error) throw new Error(data.error);
+  // 统一把 HTTP 错误转成 {error: ...} 返回，不 throw（由调用方决定如何展示）
+  if (!r.ok && !data.error) data.error = `HTTP ${r.status}`;
   return data;
 }
 
