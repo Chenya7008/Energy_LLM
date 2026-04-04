@@ -1,0 +1,104 @@
+[
+  {
+    "name": "Tesla Model S (7104-cell)",
+    "keywords": ["tesla", "model s", "tesla model s"],
+    "description": "High-capacity EV pack, 96 modules of 74 cells, C-type liquid cooling",
+    "params": {
+      "total_cells": 7104,
+      "num_groups": 96,
+      "cells_per_group": 74,
+      "cooling_type": 1,
+      "coolant_channels": 2,
+      "coolant_size": [12, 8]
+    },
+    "layout_features": {
+      "pattern": "standard",
+      "details": "96x74 grid"
+    }
+  },
+  {
+    "name": "Tesla Model 3 (4416-cell)",
+    "keywords": ["tesla model 3", "model 3"],
+    "description": "Mid-range EV pack, 96 modules of 46 cells, C-type cooling",
+    "params": {
+      "total_cells": 4416,
+      "num_groups": 96,
+      "cells_per_group": 46,
+      "cooling_type": 1,
+      "coolant_channels": 2,
+      "coolant_size": [10, 6]
+    },
+    "layout_features": {
+      "pattern": "standard",
+      "details": "96x46 grid"
+    }
+  },
+  {
+    "name": "Nissan Leaf (192-cell)",
+    "keywords": ["nissan", "leaf", "nissan leaf"],
+    "description": "Compact EV pack, 24 modules of 8 cells, S-type air cooling",
+    "params": {
+      "total_cells": 192,
+      "num_groups": 24,
+      "cells_per_group": 8,
+      "cooling_type": 0,
+      "coolant_channels": 1,
+      "coolant_size": [10]
+    },
+    "layout_features": {
+      "pattern": "standard",
+      "details": "24x8 grid"
+    }
+  },
+  {
+    "name": "BMW i3 (96-cell)",
+    "keywords": ["bmw", "i3", "bmw i3"],
+    "description": "Compact EV pack, 8 modules of 12 cells, SS-type cooling",
+    "params": {
+      "total_cells": 96,
+      "num_groups": 8,
+      "cells_per_group": 12,
+      "cooling_type": 2,
+      "coolant_channels": 2,
+      "coolant_size": [9, 6]
+    },
+    "layout_features": {
+      "pattern": "standard",
+      "details": "8x12 grid"
+    }
+  },
+  {
+    "name": "Chevy Bolt (288-cell)",
+    "keywords": ["chevy", "bolt", "chevrolet", "chevy bolt", "chevrolet bolt"],
+    "description": "GM EV pack, 96 modules of 3 cells, E-type liquid cooling",
+    "params": {
+      "total_cells": 288,
+      "num_groups": 96,
+      "cells_per_group": 3,
+      "cooling_type": 3,
+      "coolant_channels": 1,
+      "coolant_size": [11]
+    },
+    "layout_features": {
+      "pattern": "standard",
+      "details": "96x3 grid"
+    }
+  },
+  {
+    "name": "Generic Small Pack (4s3p)",
+    "keywords": ["small", "4s3p", "4s 3p", "generic small"],
+    "description": "Simple 12-cell research pack, 4 groups of 3 cells, S-type cooling",
+    "params": {
+      "total_cells": 12,
+      "num_groups": 4,
+      "cells_per_group": 3,
+      "cooling_type": 0,
+      "coolant_channels": 1,
+      "coolant_size": [9]
+    },
+    "layout_features": {
+      "pattern": "standard",
+      "details": "4x3 grid"
+    }
+  }
+]
