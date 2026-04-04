@@ -306,14 +306,12 @@ def chat():
         _history.append({"role": "assistant", "content": raw})
     except Exception as e:
         _history.pop()   # 回滚 user message
-        err = str(e)
-        # 统一认证错误提示
-        if "auth" in err.lower() or "401" in err or "key" in err.lower():
-            return jsonify({"error": f"API Key 无效，请检查后重试。({_provider})"}), 401
-        if "rate" in err.lower() or "429" in err:
-            return jsonify({"error": "请求频率超限，请稍后重试。"}), 429
+        # 打印完整堆栈到控制台，方便调试
         traceback.print_exc()
-        return jsonify({"error": err}), 500
+        # 直接把原始错误返回给前端，不做关键词猜测
+        err_type = type(e).__name__
+        err_msg  = str(e)
+        return jsonify({"error": f"[{_provider}] {err_type}: {err_msg}"}), 500
 
     try:
         llm_json = _extract_json(raw)
