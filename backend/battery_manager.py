@@ -186,6 +186,13 @@ class BatteryManager:
     def reset(self):
         self.__init__()
 
+    def _clear_slots(self):
+        """清空所有参数槽位（保留 constraints），用于 custom 意图开始新配置。"""
+        for key in ALL_NUMERIC_SLOTS:
+            self.state[key] = None
+        self.state["coolant_size"] = []
+        self.state["layout_features"] = {"pattern": "standard", "details": None}
+
     def get_all_templates(self) -> list:
         return [
             {"name": t["name"], "description": t.get("description", "")}
@@ -264,12 +271,16 @@ class BatteryManager:
         layout = llm_json.get("layout_features", {})
         reasoning = llm_json.get("llm_reasoning", {})
 
+        # custom 意图 = 全新描述，先清空所有槽位，避免旧状态（如模板）干扰
+        self._clear_slots()
+
         # Parse physical constraints out of the "junk drawer"
         assumptions = reasoning.get("assumptions_made") or ""
         constraints = self._parse_constraints(assumptions)
         self.state["constraints"].update(constraints)
 
-        msgs = self._apply_params(params, is_override=False)
+        # custom 意图用 override=True，让 LLM 提取的值直接写入
+        msgs = self._apply_params(params, is_override=True)
 
         if layout.get("pattern"):
             self.state["layout_features"]["pattern"] = layout["pattern"]
