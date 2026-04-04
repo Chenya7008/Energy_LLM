@@ -94,7 +94,7 @@ async function sendMessage() {
     if (res.error) {
       appendMsg("system", `❌ ${res.error}`);
     } else {
-      appendMsg("ai", renderMarkdown(res.chat_reply));
+      appendMsg("ai", res.chat_reply);
       updateStatePanel(res);
     }
   } catch (e) {
