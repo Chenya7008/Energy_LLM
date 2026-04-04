@@ -14,6 +14,12 @@ const COOLING_LABELS = {
 let _lastHeaderContent = "";
 let _lastTemplateMatches = [];   // 保留最近一次模板列表，选模板后不消失
 
+function clearTemplates() {
+  _lastTemplateMatches = [];
+  document.getElementById("templateSection").classList.add("hidden");
+  document.getElementById("templateCards").innerHTML = "";
+}
+
 // ── Boot ─────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
   loadLastUsedKey();       // 自动填入上次使用的 Key
