@@ -129,8 +129,11 @@ class BatteryManager:
             )
 
         s = self.state
-        total = s["total_cells"] or (s["num_groups"] * s["cells_per_group"])
-        coolant_str = ", ".join(map(str, s["coolant_size"]))
+        g = s["num_groups"]
+        c = s["cells_per_group"]
+        channels  = s["coolant_channels"]
+        sizes     = s["coolant_size"]
+        tot_size  = sum(sizes)
         cooling_name = COOLING_TYPES.get(s["cooling_type"], "UNKNOWN")
 
         lines = [
@@ -140,48 +143,88 @@ class BatteryManager:
             "#ifndef BATTERY_CONFIG_H",
             "#define BATTERY_CONFIG_H",
             "",
-            "// ── Cell Layout ─────────────────────────────",
-            f"#define TOTAL_CELLS        {total}",
-            f"#define NUM_GROUPS         {s['num_groups']}",
-            f"#define CELLS_PER_GROUP    {s['cells_per_group']}",
-            "",
-            "// ── Cooling System ───────────────────────────",
-            "// Types: 0=S-type  1=C-type  2=SS-type  3=E-type",
-            f"#define COOLING_TYPE       {s['cooling_type']}  // {cooling_name}",
-            f"#define COOLANT_CHANNELS   {s['coolant_channels']}",
-            f"#define COOLANT_SIZE_COUNT {len(s['coolant_size'])}",
-            "",
-            f"const int cooling_type   = {s['cooling_type']};",
-            f"const int coolant_size[] = {{{coolant_str}}};",
+            f"#define NUM_GROUPS {g}",
+            f"#define CELLS_PER_GROUP {c}",
+            f"#define N_BATT (NUM_GROUPS*CELLS_PER_GROUP)",
         ]
 
-        pattern = s["layout_features"]["pattern"]
-        details = s["layout_features"]["details"]
+        # ── Scheme array ──────────────────────────────────────────────
+        scheme = self._generate_scheme()
+        if scheme is not None:
+            # Format: const int scheme[G][C] = {{1,2,3},{4,5,6},...};
+            rows_str = ", ".join(
+                "{" + ", ".join(str(v) for v in row) + "}"
+                for row in scheme
+            )
+            lines.append(
+                f"const int scheme[NUM_GROUPS][CELLS_PER_GROUP] = {{{rows_str}}};"
+            )
+        else:
+            pattern = s["layout_features"]["pattern"]
+            details = s["layout_features"]["details"] or ""
+            lines.append(
+                f"// scheme: non-standard layout ({pattern}{' — ' + details if details else ''})"
+            )
+            lines.append("// Define scheme manually based on physical cell arrangement.")
+
+        # ── Cooling system ────────────────────────────────────────────
         lines += [
             "",
-            "// ── Layout ──────────────────────────────────",
-            f"// Pattern : {pattern}",
+            f"#define COOLANT_CHANNELS {channels}",
+            f"#define TOT_COOLANT_SIZE {tot_size}",
+            f"const int coolant_size[{channels}] = {{{', '.join(map(str, sizes))}}};",
+            f"// Cooling types: 0=S-type  1=C-type  2=SS-type  3=E-type",
+            f"const int cooling_type = {s['cooling_type']};  // {cooling_name}",
         ]
-        if details:
-            lines.append(f"// Details : {details}")
 
+        # ── Layout notes ──────────────────────────────────────────────
+        pattern = s["layout_features"]["pattern"]
+        details = s["layout_features"]["details"]
+        if pattern != "standard" or details:
+            lines.append("")
+            lines.append(f"// Layout pattern : {pattern}" +
+                         (f" — {details}" if details else ""))
+
+        # ── Performance constraints (reference only) ──────────────────
         if s["constraints"]:
-            lines += ["", "// ── Performance Constraints (Reference Only) ──"]
+            lines.append("")
+            lines.append("// Performance constraints (reference only):")
             if "max_temp" in s["constraints"]:
-                lines.append(
-                    f"// Target max temperature : {s['constraints']['max_temp']} °C"
-                )
+                lines.append(f"// Max temperature : {s['constraints']['max_temp']} °C")
             if "current" in s["constraints"]:
-                lines.append(
-                    f"// Discharge current      : {s['constraints']['current']} A"
-                )
+                lines.append(f"// Discharge current: {s['constraints']['current']} A")
             if "power" in s["constraints"]:
-                lines.append(
-                    f"// Power                  : {s['constraints']['power']} W"
-                )
+                lines.append(f"// Power            : {s['constraints']['power']} W")
 
         lines += ["", "#endif // BATTERY_CONFIG_H", ""]
         return "\n".join(lines)
+
+    def _generate_scheme(self) -> list | None:
+        """
+        为标准矩形布局自动生成 scheme 数组。
+        规则：scheme[i][j] = i * CELLS_PER_GROUP + j + 1
+        （与 constants.h 中 BATTERY_TYPE 1-4 等一致）
+
+        对于 with_gaps 或复杂不规则布局，返回 None，
+        提示用户手动定义（这类 scheme 包含 0 占位符，
+        必须由仿真专家根据物理排列手动指定）。
+        """
+        g = self.state["num_groups"]
+        c = self.state["cells_per_group"]
+        pattern = self.state["layout_features"]["pattern"]
+
+        if not g or not c:
+            return None
+
+        # standard 和 fully_filled 都是紧凑矩形，自动生成
+        if pattern in ("standard", "fully_filled"):
+            return [
+                [i * c + j + 1 for j in range(c)]
+                for i in range(g)
+            ]
+
+        # with_gaps：不规则布局，含 0 占位符，不自动生成
+        return None
 
     def reset(self):
         self.__init__()
