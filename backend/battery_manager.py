@@ -15,6 +15,7 @@ import os
 from typing import Optional
 
 TEMPLATES_PATH = os.path.join(os.path.dirname(__file__), "templates_db.json")
+SCHEME_PRESETS_PATH = os.path.join(os.path.dirname(__file__), "scheme_presets.json")
 
 COOLING_TYPES = {
     0: "S-type (Single S)",
@@ -57,6 +58,7 @@ class BatteryManager:
             "constraints": {},
         }
         self.templates = self._load_templates()
+        self._scheme_presets = self._load_scheme_presets()
 
     # ------------------------------------------------------------------
     # Public interface
@@ -149,21 +151,31 @@ class BatteryManager:
         ]
 
         # ── Scheme array ──────────────────────────────────────────────
-        scheme = self._generate_scheme()
-        if scheme is not None:
-            # Format: const int scheme[G][C] = {{1,2,3},{4,5,6},...};
+        scheme_result = self._generate_scheme()
+        if scheme_result is not None:
             rows_str = ", ".join(
                 "{" + ", ".join(str(v) for v in row) + "}"
-                for row in scheme
+                for row in scheme_result["data"]
             )
-            lines.append(
-                f"const int scheme[NUM_GROUPS][CELLS_PER_GROUP] = {{{rows_str}}};"
-            )
+            r = scheme_result["rows"]
+            col = scheme_result["cols"]
+            # Standard: use macro names; with_gaps preset: use literal dims
+            if scheme_result["source"] == "standard":
+                lines.append(
+                    f"const int scheme[NUM_GROUPS][CELLS_PER_GROUP] = {{{rows_str}}};"
+                )
+            else:
+                lines.append(
+                    f"// with_gaps preset: {scheme_result['description']}"
+                )
+                lines.append(
+                    f"const int scheme[{r}][{col}] = \n{{{rows_str}}};"
+                )
         else:
             pattern = s["layout_features"]["pattern"]
             details = s["layout_features"]["details"] or ""
             lines.append(
-                f"// scheme: non-standard layout ({pattern}{' — ' + details if details else ''})"
+                f"// scheme: no preset found for {g}×{c} with_gaps layout"
             )
             lines.append("// Define scheme manually based on physical cell arrangement.")
 
@@ -199,15 +211,22 @@ class BatteryManager:
         lines += ["", "#endif // BATTERY_CONFIG_H", ""]
         return "\n".join(lines)
 
-    def _generate_scheme(self) -> list | None:
+    def _generate_scheme(self) -> dict | None:
         """
-        为标准矩形布局自动生成 scheme 数组。
-        规则：scheme[i][j] = i * CELLS_PER_GROUP + j + 1
-        （与 constants.h 中 BATTERY_TYPE 1-4 等一致）
+        返回 scheme 数组及其元信息，供 generate_header() 使用。
 
-        对于 with_gaps 或复杂不规则布局，返回 None，
-        提示用户手动定义（这类 scheme 包含 0 占位符，
-        必须由仿真专家根据物理排列手动指定）。
+        返回结构：
+          {
+            "source": "standard" | "preset",
+            "rows": int, "cols": int,
+            "data": [[int, ...]],
+            "description": str   # 仅 preset 有
+          }
+
+        三种情况：
+          1. standard / fully_filled → 顺序编号矩形，dims = [num_groups][cells_per_group]
+          2. with_gaps + 找到预设 → 从 scheme_presets.json 读取
+          3. with_gaps + 无预设 → 返回 None，提示用户手动填写
         """
         g = self.state["num_groups"]
         c = self.state["cells_per_group"]
@@ -216,15 +235,39 @@ class BatteryManager:
         if not g or not c:
             return None
 
-        # standard 和 fully_filled 都是紧凑矩形，自动生成
+        # ── Case 1: standard rectangular layout ──────────────────────
         if pattern in ("standard", "fully_filled"):
-            return [
-                [i * c + j + 1 for j in range(c)]
-                for i in range(g)
-            ]
+            return {
+                "source": "standard",
+                "rows": g,
+                "cols": c,
+                "data": [[i * c + j + 1 for j in range(c)] for i in range(g)],
+                "description": "",
+            }
 
-        # with_gaps：不规则布局，含 0 占位符，不自动生成
+        # ── Case 2 & 3: with_gaps — look up preset ────────────────────
+        key = f"{g}x{c}"
+        preset = self._scheme_presets.get(key)
+        if preset:
+            return {
+                "source": "preset",
+                "rows": preset["rows"],
+                "cols": preset["cols"],
+                "data": preset["scheme"],
+                "description": preset["description"],
+            }
+
+        # No preset found
         return None
+
+    def _load_scheme_presets(self) -> dict:
+        """Load scheme_presets.json → dict keyed by '{num_groups}x{cells_per_group}'."""
+        try:
+            with open(SCHEME_PRESETS_PATH, encoding="utf-8") as f:
+                raw = json.load(f)
+            return {p["key"]: p for p in raw.get("presets", [])}
+        except Exception:
+            return {}
 
     def reset(self):
         self.__init__()
