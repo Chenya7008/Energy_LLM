@@ -341,10 +341,26 @@ def update_slot():
     value = data.get("value")
 
     if slot not in ["total_cells","num_groups","cells_per_group",
-                    "cooling_type","coolant_channels","coolant_size"]:
+                    "cooling_type","coolant_channels","coolant_size",
+                    "layout_pattern","corner_size"]:
         return jsonify({"error": f"未知槽位: {slot}"}), 400
 
     result = _battery.update_slot(slot, value)
+    return jsonify({
+        "success": True,
+        "state": _battery.state,
+        "missing_slots": _battery.get_missing_slots(),
+        "conflicts": result["conflicts"],
+        "derived": result["derived"],
+    })
+
+
+@app.route("/api/update-layout", methods=["POST"])
+def update_layout():
+    data = request.json or {}
+    pattern     = data.get("pattern", "standard")
+    corner_size = int(data.get("corner_size", 1))
+    result = _battery.update_layout(pattern, corner_size)
     return jsonify({
         "success": True,
         "state": _battery.state,

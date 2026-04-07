@@ -52,8 +52,9 @@ class BatteryManager:
             "coolant_channels": None,
             "coolant_size": [],
             "layout_features": {
-                "pattern": "standard",
+                "pattern": "standard",   # standard | fully_filled | with_gaps | corner_cut | staggered
                 "details": None,
+                "corner_size": 1,        # for corner_cut only
             },
             "constraints": {},
         }
@@ -73,6 +74,15 @@ class BatteryManager:
             return self._handle_update(llm_json)
         else:
             return self._handle_custom(llm_json)
+
+    def update_layout(self, pattern: str, corner_size: int = 1) -> dict:
+        """Update layout pattern from UI selector."""
+        self.state["layout_features"]["pattern"] = pattern
+        if pattern == "corner_cut":
+            self.state["layout_features"]["corner_size"] = max(1, int(corner_size))
+        conflicts = self._validate_state()
+        derived = self._derive_missing()
+        return {"conflicts": conflicts, "derived": derived}
 
     def update_slot(self, slot: str, value) -> dict:
         """Called when user fills a missing slot directly from the UI."""
@@ -153,30 +163,21 @@ class BatteryManager:
         # ── Scheme array ──────────────────────────────────────────────
         scheme_result = self._generate_scheme()
         if scheme_result is not None:
+            r   = scheme_result["rows"]
+            col = scheme_result["cols"]
             rows_str = ", ".join(
                 "{" + ", ".join(str(v) for v in row) + "}"
                 for row in scheme_result["data"]
             )
-            r = scheme_result["rows"]
-            col = scheme_result["cols"]
-            # Standard: use macro names; with_gaps preset: use literal dims
             if scheme_result["source"] == "standard":
                 lines.append(
                     f"const int scheme[NUM_GROUPS][CELLS_PER_GROUP] = {{{rows_str}}};"
                 )
             else:
-                lines.append(
-                    f"// with_gaps preset: {scheme_result['description']}"
-                )
-                lines.append(
-                    f"const int scheme[{r}][{col}] = \n{{{rows_str}}};"
-                )
+                lines.append(f"// Layout: {scheme_result['description']}")
+                lines.append(f"const int scheme[{r}][{col}] = {{{rows_str}}};")
         else:
-            pattern = s["layout_features"]["pattern"]
-            details = s["layout_features"]["details"] or ""
-            lines.append(
-                f"// scheme: no preset found for {g}×{c} with_gaps layout"
-            )
+            lines.append(f"// scheme: no preset found for {g}×{c} with_gaps layout")
             lines.append("// Define scheme manually based on physical cell arrangement.")
 
         # ── Cooling system ────────────────────────────────────────────
@@ -245,7 +246,16 @@ class BatteryManager:
                 "description": "",
             }
 
-        # ── Case 2 & 3: with_gaps — look up preset ────────────────────
+        # ── Case 2: corner_cut — rectangle with triangular corners ────
+        if pattern == "corner_cut":
+            cs = self.state["layout_features"].get("corner_size", 1)
+            return self._make_corner_cut(g, c, cs)
+
+        # ── Case 3: staggered — brick-offset rows ─────────────────────
+        if pattern == "staggered":
+            return self._make_staggered(g, c)
+
+        # ── Case 4 & 5: with_gaps — look up preset ───────────────────
         key = f"{g}x{c}"
         preset = self._scheme_presets.get(key)
         if preset:
@@ -259,6 +269,76 @@ class BatteryManager:
 
         # No preset found
         return None
+
+    def _make_corner_cut(self, g: int, c: int, cs: int) -> dict:
+        """
+        Rectangular grid with triangular corners removed.
+        The 4 corners satisfy: i+j < cs  or  i+(c-1-j) < cs
+                               (g-1-i)+j < cs  or  (g-1-i)+(c-1-j) < cs
+        Cell IDs are assigned left-to-right, top-to-bottom, skipping 0s.
+        Matrix dimensions stay [g][c].
+        """
+        cs = max(0, min(cs, min(g, c) // 2))  # clamp to sensible range
+        mask = []
+        for i in range(g):
+            row = []
+            for j in range(c):
+                cut = (i + j < cs or
+                       i + (c - 1 - j) < cs or
+                       (g - 1 - i) + j < cs or
+                       (g - 1 - i) + (c - 1 - j) < cs)
+                row.append(0 if cut else 1)
+            mask.append(row)
+
+        cell_id = 1
+        data = []
+        for i in range(g):
+            row = []
+            for j in range(c):
+                if mask[i][j]:
+                    row.append(cell_id)
+                    cell_id += 1
+                else:
+                    row.append(0)
+            data.append(row)
+
+        return {
+            "source": "corner_cut",
+            "rows": g,
+            "cols": c,
+            "data": data,
+            "description": f"corner_cut (corner_size={cs})",
+        }
+
+    def _make_staggered(self, g: int, c: int) -> dict:
+        """
+        Brick / staggered layout: odd rows are offset right by 1.
+        Matrix is [g][c+1]: even rows fill cols 0..c-1, col c = 0;
+                             odd rows fill cols 1..c,   col 0 = 0.
+        Cell IDs assigned left-to-right, top-to-bottom.
+        """
+        cols = c + 1
+        cell_id = 1
+        data = []
+        for i in range(g):
+            row = [0] * cols
+            if i % 2 == 0:          # even row: fill left, trailing 0
+                for j in range(c):
+                    row[j] = cell_id
+                    cell_id += 1
+            else:                   # odd row: leading 0, fill right
+                for j in range(1, cols):
+                    row[j] = cell_id
+                    cell_id += 1
+            data.append(row)
+
+        return {
+            "source": "staggered",
+            "rows": g,
+            "cols": cols,
+            "data": data,
+            "description": "staggered (brick offset)",
+        }
 
     def _load_scheme_presets(self) -> dict:
         """Load scheme_presets.json → dict keyed by '{num_groups}x{cells_per_group}'."""

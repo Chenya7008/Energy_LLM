@@ -380,10 +380,14 @@ function updateStatePanel(data) {
 
   // Layout
   const lf = state.layout_features || {};
-  const layoutText = lf.details
-    ? `${lf.pattern} / ${lf.details}`
-    : (lf.pattern || "standard");
+  let layoutText = lf.pattern || "standard";
+  if (lf.pattern === "corner_cut") layoutText += ` (corner=${lf.corner_size || 1})`;
+  if (lf.pattern === "with_gaps")  layoutText += ` ${state.num_groups || "?"}×${state.cells_per_group || "?"}`;
+  if (lf.details) layoutText += ` / ${lf.details}`;
   setParamValue("val-layout", layoutText, false);
+  // also sync the corner_size display value
+  const csizeVal = document.getElementById("val-corner_size");
+  if (csizeVal) csizeVal.textContent = lf.corner_size || 1;
 
   // Constraints
   const c = state.constraints || {};
@@ -503,6 +507,63 @@ function syncInputs(state) {
   const cs = document.getElementById("input-coolant_size");
   if (cs) cs.value = state.coolant_size && state.coolant_size.length > 0
     ? state.coolant_size.join(", ") : "";
+
+  // Layout pattern selector
+  const lf = state.layout_features || {};
+  const pattern = lf.pattern || "standard";
+  const patternSel = document.getElementById("input-layout_pattern");
+  if (patternSel) {
+    // with_gaps presets: map back to the option values
+    if (pattern === "with_gaps") {
+      const g = state.num_groups, c = state.cells_per_group;
+      patternSel.value = (g === 6 && c === 74) ? "with_gaps_6x74"
+                       : (g === 6 && c === 86) ? "with_gaps_6x86"
+                       : "standard";
+    } else {
+      patternSel.value = pattern;
+    }
+    _syncCornerSizeRow(pattern);
+  }
+  const csizeEl = document.getElementById("input-corner_size");
+  if (csizeEl && lf.corner_size != null) csizeEl.value = lf.corner_size;
+}
+
+// ── Layout pattern controls ───────────────────────────────────────────
+
+function _syncCornerSizeRow(pattern) {
+  const row = document.getElementById("row-corner_size");
+  if (row) row.style.display = (pattern === "corner_cut") ? "" : "none";
+}
+
+async function onLayoutPatternChange() {
+  const sel = document.getElementById("input-layout_pattern");
+  const raw = sel.value;
+  _syncCornerSizeRow(raw === "corner_cut" ? "corner_cut" : "other");
+
+  // Map option value → API pattern + preset handling
+  let pattern = raw;
+  if (raw === "with_gaps_6x74") pattern = "with_gaps";
+  if (raw === "with_gaps_6x86") pattern = "with_gaps";
+
+  const cornerSize = parseInt(document.getElementById("input-corner_size")?.value || "1");
+
+  // For with_gaps presets we also need to set num_groups / cells_per_group
+  if (raw === "with_gaps_6x74") {
+    await post("/api/update-slot", { slot: "num_groups",      value: 6  });
+    await post("/api/update-slot", { slot: "cells_per_group", value: 74 });
+  } else if (raw === "with_gaps_6x86") {
+    await post("/api/update-slot", { slot: "num_groups",      value: 6  });
+    await post("/api/update-slot", { slot: "cells_per_group", value: 86 });
+  }
+
+  const data = await post("/api/update-layout", { pattern, corner_size: cornerSize });
+  if (data && !data.error) updateStatePanel(data);
+}
+
+async function onCornerSizeChange(val) {
+  const cornerSize = Math.max(1, parseInt(val) || 1);
+  const data = await post("/api/update-layout", { pattern: "corner_cut", corner_size: cornerSize });
+  if (data && !data.error) updateStatePanel(data);
 }
 
 // ══════════════════════════════════════════════════════════════════════

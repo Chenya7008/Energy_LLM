@@ -184,10 +184,30 @@
       <div class="param-row" id="row-layout">
         <div class="param-label">
           <span class="param-icon">◎</span>
-          Pattern / Details
+          Pattern
         </div>
         <div class="param-value" id="val-layout">standard</div>
-        <div class="param-edit"></div>
+        <div class="param-edit">
+          <select id="input-layout_pattern" onchange="onLayoutPatternChange()">
+            <option value="standard">standard</option>
+            <option value="corner_cut">corner_cut</option>
+            <option value="staggered">staggered</option>
+            <option value="with_gaps_6x74">with_gaps 6×74</option>
+            <option value="with_gaps_6x86">with_gaps 6×86</option>
+          </select>
+        </div>
+      </div>
+      <div class="param-row" id="row-corner_size" class="hidden" style="display:none">
+        <div class="param-label">
+          <span class="param-icon">◎</span>
+          Corner Size
+        </div>
+        <div class="param-value" id="val-corner_size">1</div>
+        <div class="param-edit">
+          <input type="number" min="1" max="10" value="1"
+                 id="input-corner_size"
+                 onchange="onCornerSizeChange(this.value)"/>
+        </div>
       </div>
 
       <div class="param-section-title" style="margin-top:10px">Performance Constraints</div>
