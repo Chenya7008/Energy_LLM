@@ -549,20 +549,26 @@ async function onLayoutPatternChange() {
 
   // For with_gaps presets we also need to set num_groups / cells_per_group
   if (raw === "with_gaps_6x74") {
-    await post("/api/update-slot", { slot: "num_groups",      value: 6  });
-    await post("/api/update-slot", { slot: "cells_per_group", value: 74 });
+    await post("/update-slot", { slot: "total_cells",     value: 444 });
+    await post("/update-slot", { slot: "num_groups",      value: 6   });
+    await post("/update-slot", { slot: "cells_per_group", value: 74  });
   } else if (raw === "with_gaps_6x86") {
-    await post("/api/update-slot", { slot: "num_groups",      value: 6  });
-    await post("/api/update-slot", { slot: "cells_per_group", value: 86 });
+    await post("/update-slot", { slot: "total_cells",     value: 516 });
+    await post("/update-slot", { slot: "num_groups",      value: 6   });
+    await post("/update-slot", { slot: "cells_per_group", value: 86  });
   }
 
-  const data = await post("/api/update-layout", { pattern, corner_size: cornerSize });
-  if (data && !data.error) updateStatePanel(data);
+  const data = await post("/update-layout", { pattern, corner_size: cornerSize });
+  if (data && data.error) {
+    appendMsg("system", `❌ Layout 更新失败: ${data.error}`);
+  } else if (data) {
+    updateStatePanel(data);
+  }
 }
 
 async function onCornerSizeChange(val) {
   const cornerSize = Math.max(1, parseInt(val) || 1);
-  const data = await post("/api/update-layout", { pattern: "corner_cut", corner_size: cornerSize });
+  const data = await post("/update-layout", { pattern: "corner_cut", corner_size: cornerSize });
   if (data && !data.error) updateStatePanel(data);
 }
 
@@ -656,12 +662,22 @@ function hideBanner(id) {
 
 // ── HTTP helpers ──────────────────────────────────────────────────────
 async function post(path, body = {}) {
-  const r = await fetch(API + path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = await r.json();
+  let r;
+  try {
+    r = await fetch(API + path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    return { error: `网络错误: 无法连接后端 (${e.message})` };
+  }
+  let data;
+  try {
+    data = await r.json();
+  } catch (e) {
+    return { error: `服务器返回了非 JSON 响应 (HTTP ${r.status})，请确认 start.sh 正在运行` };
+  }
   // 统一把 HTTP 错误转成 {error: ...} 返回，不 throw（由调用方决定如何展示）
   if (!r.ok && !data.error) data.error = `HTTP ${r.status}`;
   return data;
