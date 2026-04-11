@@ -7,50 +7,53 @@ A conversational tool for configuring battery thermal simulation parameters. Des
 ## Quick Start
 
 ### Windows
-```
-双击 start.bat
+
+```text
+Double-click start.bat
 ```
 
 ### macOS / Linux
+
 ```bash
 chmod +x start.sh
 ./start.sh
 ```
 
-脚本会自动安装依赖并在浏览器打开 `http://127.0.0.1:5000`。
+The script automatically installs dependencies and opens `http://127.0.0.1:8080` in your browser.
 
-### 手动启动
+### Manual Start
+
 ```bash
 pip install -r backend/requirements.txt
 python backend/app.py
-# 浏览器访问 http://127.0.0.1:5000
+# Then open http://127.0.0.1:8080
 ```
 
 ---
 
-## 使用方式
+## Usage
 
-### 1. 配置 API Key
+### 1. Configure an API Key
 
-顶栏选择平台 → 填入模型名 → 粘贴 API Key → 填写「保存为」名称（可选）→ 点击**连接**。
+In the top bar: select a provider → enter the model name → paste your API key → optionally enter a "Save as" label → click **Connect**.
 
-支持的平台：
+Supported providers:
 
-| 平台 | 推荐模型 | 获取 Key |
-|---|---|---|
+| Provider | Recommended Model | Get Key |
+| --- | --- | --- |
 | Anthropic (Claude) | claude-sonnet-4-6 | console.anthropic.com |
 | OpenAI (GPT) | gpt-4o | platform.openai.com |
 | DeepSeek | deepseek-chat | platform.deepseek.com |
 | Google Gemini | gemini-2.0-flash | aistudio.google.com |
-| 自定义 | 任意 | 填入 Base URL 即可（兼容 OpenAI 格式）|
+| Custom | any | Enter a Base URL (OpenAI-compatible) |
 
-Key 保存在浏览器 `localStorage`，不经过任何服务器，下次打开自动填入。
+Keys are stored in browser `localStorage` — they never pass through any server and are auto-filled on next visit.
 
-### 2. 描述你的电池包
+### 2. Describe your battery pack
 
-在左侧聊天框用自然语言描述，支持多种输入风格：
+Use natural language in the left chat panel:
 
-```
+```text
 "4 groups, 3 cells each, S-type cooling, 1 channel, coolant length 9"
 "Use the Tesla Model S template"
 "100 cells in 10 groups, water cooling"
@@ -58,63 +61,75 @@ Key 保存在浏览器 `localStorage`，不经过任何服务器，下次打开�
 "Change cooling to C-type and use 2 channels"
 ```
 
-### 3. 补全缺失参数
+### 3. Fill in missing parameters
 
-右侧面板实时显示已提取的参数。缺失项标红，可直接在右侧输入框手动填写，无需再次对话。
+The right panel shows all extracted parameters in real time. Missing slots are highlighted in red and can be filled directly without re-prompting the LLM.
 
-### 4. 生成 constants.h
+### 4. Choose a layout pattern
 
-所有必填参数就绪后，点击绿色 **Generate constants.h** 按钮，可预览、复制或下载，直接交给 C++ 仿真引擎使用。
+Use the layout selector in the right panel:
+
+| Pattern | Description |
+| --- | --- |
+| `standard` | Sequential rectangular grid — default |
+| `fully_filled` | Forces the entire bounding box to be occupied |
+| `with_gaps` | Non-rectangular layout loaded from `scheme_presets.json` |
+| `corner_cut` | Rectangular grid with triangular corners removed (configurable size) |
+| `staggered` | Brick / offset-row layout — odd rows shifted right by one cell |
+
+### 5. Generate constants.h
+
+Once all required slots are filled, click the green **Generate constants.h** button to preview, copy, or download the header file for your C++ simulation engine.
 
 ---
 
-## 架构设计
+## Architecture
 
+```text
+User natural language
+        │
+        ▼
+   LLM  ("Ears")
+   Semantic extraction only — no math, no guessing
+   Outputs structured JSON
+        │
+        ▼
+   Python BatteryManager  ("Brain")
+   Validate → Derive → Detect conflicts → Manage state
+        │
+        ▼
+   Frontend UI  ("Arbiter")
+   Null slots → prompt manual input, never re-ask LLM
+        │
+        ▼
+   constants.h  (handed to the C++ simulation engine)
 ```
-用户自然语言
-     │
-     ▼
-  LLM（"耳朵"）
-  只做语义提取，严禁计算和猜测
-  输出标准 JSON
-     │
-     ▼
-  Python BatteryManager（"大脑"）
-  校验 → 推导 → 冲突检测 → 状态管理
-     │
-     ▼
-  前端 UI（"仲裁者"）
-  null 槽位 → 弹出手动输入，不回推 LLM
-     │
-     ▼
-  constants.h（交给 C++ 仿真引擎）
-```
 
-### 核心原则：LLM 是"耳朵"，Python 是"大脑"
+### Core principle: LLM as "Ears", Python as "Brain"
 
-LLM 天生概率性、不稳定，不适合做精确计算。本系统的设计哲学是：
+LLMs are probabilistic by nature and unsuitable for precise arithmetic. The system is designed around this principle:
 
-- **LLM 只负责一件事**：把非结构化语言映射到预定义的 JSON 槽位。凡是没有明确说出来的数字，一律填 `null`，绝不猜测、绝不计算。
-- **Python 负责所有逻辑**：数学推导、冲突检测、状态持久化。这些操作是确定性的，结果唯一可验证。
-- **UI 负责兜底**：当 LLM 填不上的槽位出现，直接让用户点选，不反复追问 LLM（节省 token，避免幻觉叠加）。
+- **LLM does one thing**: map unstructured language to predefined JSON slots. Any number not explicitly stated becomes `null` — no guessing, no calculation.
+- **Python handles all logic**: mathematical derivation, conflict detection, state persistence. These operations are deterministic and verifiable.
+- **UI handles the fallback**: when a slot cannot be filled by the LLM, the user fills it directly — no repeated LLM queries (saves tokens, avoids hallucination chaining).
 
 ---
 
-## 技术栈
+## Tech Stack
 
-| 层级 | 技术 |
-|---|---|
-| 后端 | Python 3 + Flask + flask-cors |
-| LLM 接入 | anthropic SDK / openai SDK / google-genai SDK |
-| 前端 | 原生 HTML + CSS + JavaScript（无构建工具） |
-| 数据持久化 | 浏览器 localStorage（Key 管理）|
-| 部署 | 本地单机，Flask 同时托管前端静态文件 |
+| Layer | Technology |
+| --- | --- |
+| Backend | Python 3 + Flask + flask-cors |
+| LLM integration | anthropic SDK / openai SDK / google-genai SDK |
+| Frontend | Vanilla HTML + CSS + JavaScript (no build tools) |
+| Persistence | Browser `localStorage` (API key management) |
+| Deployment | Local single-machine; Flask serves the frontend static files |
 
 ---
 
-## JSON 协议
+## JSON Protocol
 
-LLM 输出严格遵循以下结构（来自 EMIOT.pdf 规范）：
+The LLM output strictly follows this schema (based on the EMIOT.pdf specification):
 
 ```json
 {
@@ -131,7 +146,7 @@ LLM 输出严格遵循以下结构（来自 EMIOT.pdf 规范）：
     "coolant_size": []
   },
   "layout_features": {
-    "pattern": "standard | with_gaps | fully_filled",
+    "pattern": "standard | with_gaps | fully_filled | corner_cut | staggered",
     "details": "8x8 grid"
   },
   "llm_reasoning": {
@@ -141,68 +156,71 @@ LLM 输出严格遵循以下结构（来自 EMIOT.pdf 规范）：
 }
 ```
 
-**三种 intent：**
-- `custom`：全新配置，LLM 列出所有缺失槽位，Python 先清空状态再写入
-- `template`：按名称查模板库，Python 匹配后整体填入，LLM 提取的覆盖值优先
-- `update`：只改用户提到的槽位，其余保持不变（增量更新）
+**Three intent types:**
+
+- `custom`: New configuration from scratch. LLM lists all empty slots in `missing_info`. Python clears existing state before writing.
+- `template`: User references a named model (e.g., "Tesla Model S"). Python performs fuzzy keyword search, then fills all params. LLM-extracted values take precedence as overrides.
+- `update`: Only the slots the user mentioned are changed; everything else remains unchanged (incremental update).
 
 ---
 
-## Python BatteryManager 核心逻辑
+## Python BatteryManager — Core Logic
 
-### 确定性数学推导
+### Deterministic derivation
 
 ```python
-# 已知总数和组数 → 推导每组数量
+# Known total and groups → derive cells per group
 if total and groups and cells_per_group is None:
     if total % groups == 0:
-        cells_per_group = total // groups   # 整除才推导，有余数报错
+        cells_per_group = total // groups   # only when evenly divisible; remainder raises an error
 
-# 已知组数和每组数 → 推导总数
+# Known groups and cells per group → derive total
 elif groups and cells_per_group and total is None:
     total = groups * cells_per_group
 ```
 
-LLM 做除法可能出错（100/3 可能给出 33），Python 用整除运算保证精确，余数情况明确报错。
+LLM division can be wrong (100 ÷ 3 might return 33). Python uses integer division and raises an explicit error on remainders.
 
-### 冲突检测
+### Conflict detection
 
 ```python
 if total and groups and cells_per_group:
     if total != groups * cells_per_group:
-        # 触发红色警告，不自动"修正"，保留用户原始意图
+        # Red warning — no auto-correction; preserve the user's original intent
         conflicts.append(f"total_cells ({total}) ≠ {groups} × {cells_per_group}")
 ```
 
-冲突不自动修复——用户说了什么就记录什么，由用户决定哪个数字是对的。
+Conflicts are never silently fixed — the user decides which number is correct.
 
-### 状态机管理
+### State machine
 
+```text
+custom   → clear all slots → write new values → derive → conflict check
+template → replace all     → apply overrides  → derive → conflict check
+update   → update named slots only            → derive → conflict check
 ```
-custom  → 清空所有槽位 → 填入新值 → 推导 → 冲突检测
-template → 整体替换 → 覆盖用户指定的值 → 推导 → 冲突检测  
-update  → 只更新提到的槽位 → 推导 → 冲突检测
-```
 
-会话历史由 Python 维护，LLM 每次只处理当前消息，不依赖其记忆上下文长度。
+Conversation history is maintained by Python. The LLM processes only the current message and does not depend on its own context window for state.
 
 ---
 
-## 模糊输入时 Suggestion 的来源
+## Template Suggestions — How They Work
 
-当用户只给出性能目标而没有具体参数时（如"100A 放电不过热，温度低于 45°C"），系统会进入以下流程：
+When the user provides only a performance goal (e.g. "100A discharge, max 45°C") without any physical parameters, the system follows this pipeline:
 
-### Step 1：LLM 提取约束，不填参数
+### Step 1 — LLM extracts constraints, not parameters
 
-System Prompt 明确禁止 LLM 猜测物理参数，它只提取到：
+The system prompt forbids the LLM from guessing physical values. It only extracts:
+
 ```json
 "assumptions_made": "Constraint: Max_Temp < 45°C, Discharge = 100A"
 ```
-所有 `simulation_parameters` 均为 `null`。
 
-### Step 2：Python 解析约束
+All `simulation_parameters` remain `null`.
 
-用正则从 `assumptions_made` 字符串中提取结构化约束：
+### Step 2 — Python parses the constraints
+
+Regular expressions extract structured values from `assumptions_made`:
 
 ```python
 def _parse_constraints(self, text):
@@ -215,58 +233,74 @@ def _parse_constraints(self, text):
     return constraints
 ```
 
-### Step 3：触发模板推荐
+### Step 3 — Ranked template recommendations
 
-Python 检测到：所有数值槽位为 `null` + 存在性能约束 → 判断用户处于"性能导向"场景，推荐模板库中的配置供用户选择：
+Python detects that all numeric slots are `null` and performance constraints exist → performance-driven scenario. Templates are scored across three independent dimensions:
 
-```python
-numeric_all_null = all(self.state[k] is None for k in ALL_NUMERIC_SLOTS)
-if numeric_all_null and constraints:
-    suggestions = self.templates[:4]   # 当前返回前4个模板
-    # 实际工程中可接入仿真数据库，按约束过滤
-```
+- **max_temp**: template's `max_temp_C` ≤ user's limit → score +2, with thermal headroom bonus
+- **current**: template's `max_discharge_A` ≥ required → score +2 + headroom bonus; templates that fall short are excluded
+- **power**: `nominal_voltage × max_discharge_A` ≥ required → score +2
 
-### Step 4：用户点击模板 → 闭环
+Top-ranked templates are shown as suggestion cards on the right.
 
-用户从右侧卡片点击模板，Python 整体填入参数，缺失项继续由 UI 提示手动补全。整个过程**不再消耗额外 LLM token**。
+### Step 4 — User clicks a template → loop closed
 
-### 为什么不让 LLM 直接推荐？
+Python fills all parameters from the template. Any remaining missing slots are flagged for manual input. No additional LLM tokens consumed.
 
-- LLM 不知道模板库里有什么，容易幻觉出不存在的配置
-- 推荐逻辑应该是确定性的（按约束过滤数据库），而非概率性的
-- Python 的推荐结果可验证、可追溯
+### Why not let the LLM recommend directly?
+
+- The LLM has no knowledge of what is in the template library — it will hallucinate non-existent configurations.
+- Recommendation logic should be deterministic (filter a database by constraints), not probabilistic.
+- Python's results are verifiable and traceable.
 
 ---
 
-## 文件结构
+## API Endpoints
 
-```
+| Method | Path | Description |
+| --- | --- | --- |
+| `POST` | `/api/set-token` | Save API key, provider, and model |
+| `GET` | `/api/state` | Get current battery configuration state |
+| `POST` | `/api/chat` | Send a message → LLM → BatteryManager |
+| `POST` | `/api/update-slot` | Manually fill a slot from the UI |
+| `POST` | `/api/update-layout` | Update layout pattern from the UI selector |
+| `POST` | `/api/apply-template` | Apply a template by name |
+| `GET` | `/api/templates` | List all available templates |
+| `POST` | `/api/generate-header` | Generate `constants.h` |
+| `POST` | `/api/reset` | Reset state and conversation history |
+
+---
+
+## File Structure
+
+```text
 Energy_LLM/
 ├── backend/
-│   ├── app.py              # Flask API（9个端点）
-│   ├── battery_manager.py  # 核心状态机逻辑
-│   ├── templates_db.json   # 预置模板库（Tesla/Nissan/BMW等）
+│   ├── app.py                # Flask API (9 endpoints)
+│   ├── battery_manager.py    # Core state machine and derivation logic
+│   ├── templates_db.json     # Pre-built template library (Tesla / Nissan / BMW / …)
+│   ├── scheme_presets.json   # Non-rectangular layout schemes (with_gaps presets)
 │   └── requirements.txt
 ├── frontend/
-│   ├── index.html          # 双栏主界面
-│   ├── style.css           # 深色主题
-│   └── app.js              # 前端逻辑 + Key 管理
-├── start.bat               # Windows 一键启动
-├── start.sh                # macOS / Linux 一键启动
-└── EMIOT.pdf               # 原始架构设计文档
+│   ├── index.html            # Two-column main UI
+│   ├── style.css             # Dark theme
+│   └── app.js                # Frontend logic + API key management
+├── start.bat                 # Windows one-click launcher
+├── start.sh                  # macOS / Linux one-click launcher
+└── EMIOT.pdf                 # Original architecture specification
 ```
 
 ---
 
-## 扩展模板库
+## Extending the Template Library
 
-编辑 `backend/templates_db.json`，按以下格式添加：
+Edit `backend/templates_db.json` and add an entry in this format:
 
 ```json
 {
   "name": "My Custom Pack",
   "keywords": ["my pack", "custom"],
-  "description": "简要描述",
+  "description": "Brief description shown in the UI",
   "params": {
     "total_cells": 48,
     "num_groups": 12,
@@ -278,8 +312,15 @@ Energy_LLM/
   "layout_features": {
     "pattern": "standard",
     "details": "12x4 grid"
+  },
+  "performance": {
+    "max_temp_C": 40,
+    "max_discharge_A": 120,
+    "nominal_voltage_V": 48
   }
 }
 ```
 
-冷却类型映射：`0=S-type`，`1=C-type`，`2=SS-type`，`3=E-type`
+**Cooling type mapping:** `0 = S-type`, `1 = C-type`, `2 = SS-type`, `3 = E-type`
+
+The optional `performance` block enables constraint-based template ranking when users describe goals instead of parameters.
