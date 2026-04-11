@@ -623,6 +623,47 @@ class BatteryManager:
         ]
 
     def _search_by_constraints(self, constraints: dict) -> list:
-        # Simple heuristic: return all templates as starting points
-        # A real implementation would run the simulation to filter
-        return self.templates[:4]
+        """Score and rank templates by how well they satisfy performance constraints.
+
+        Scoring (each dimension independent):
+          max_temp : template.max_temp_C <= limit  → +2, bonus for thermal margin
+          current  : template.max_discharge_A >= required → +2 + headroom bonus;
+                     templates that cannot meet current are excluded entirely.
+          power    : nominal_voltage × max_discharge_A >= required → +2
+        """
+        max_temp = constraints.get("max_temp")
+        current  = constraints.get("current")
+        power    = constraints.get("power")
+
+        scored = []
+        for t in self.templates:
+            perf = t.get("performance", {})
+            score = 0.0
+            disqualified = False
+
+            if max_temp is not None:
+                t_max = perf.get("max_temp_C")
+                if t_max is not None and t_max <= max_temp:
+                    score += 2.0 + max(0.0, (max_temp - t_max) / 5.0)
+
+            if current is not None:
+                t_curr = perf.get("max_discharge_A")
+                if t_curr is not None:
+                    if t_curr >= current:
+                        score += 2.0 + min(1.0, (t_curr - current) / current)
+                    else:
+                        disqualified = True
+
+            if power is not None:
+                t_volt  = perf.get("nominal_voltage_V", 0)
+                t_curr2 = perf.get("max_discharge_A", 0)
+                if t_volt * t_curr2 >= power:
+                    score += 2.0
+
+            if not disqualified:
+                scored.append((score, t))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        qualified = [(s, t) for s, t in scored if s > 0]
+        result = qualified if qualified else scored
+        return [t for _, t in result[:4]]
