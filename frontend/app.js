@@ -12,7 +12,7 @@ const COOLING_LABELS = {
 };
 
 let _lastHeaderContent = "";
-let _lastTemplateMatches = [];   // 保留最近一次模板列表，选模板后不消失
+let _lastTemplateMatches = [];   // retain last template list so it persists after selection
 
 function clearTemplates() {
   _lastTemplateMatches = [];
@@ -22,12 +22,12 @@ function clearTemplates() {
 
 // ── Boot ─────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
-  loadLastUsedKey();       // 自动填入上次使用的 Key
-  renderSavedKeysList();   // 渲染已保存列表
+  loadLastUsedKey();       // restore last-used key into form
+  renderSavedKeysList();   // populate saved-keys dropdown
   fetchState();
 });
 
-// 点击面板外关闭 Key 管理器
+// Close key manager when clicking outside
 document.addEventListener("click", (e) => {
   const panel = document.getElementById("keyManagerPanel");
   const btn   = document.querySelector(".btn-saved-keys");
@@ -37,7 +37,7 @@ document.addEventListener("click", (e) => {
   }
 });
 
-// ── 平台默认模型 ──────────────────────────────────────────────────────
+// ── Default models per provider ──────────────────────────────────────
 const PROVIDER_MODELS = {
   anthropic: ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001"],
   openai:    ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
@@ -51,17 +51,17 @@ function onProviderChange() {
   const modelEl  = document.getElementById("modelInput");
   const urlEl    = document.getElementById("baseUrlInput");
 
-  // 自动填入默认模型
+  // auto-fill default model for the selected provider
   const defaults = PROVIDER_MODELS[provider];
   if (defaults && defaults.length > 0) modelEl.value = defaults[0];
   else modelEl.value = "";
 
-  // 仅 custom 显示 Base URL 输入框
+  // show Base URL input only for custom provider
   urlEl.classList.toggle("hidden", provider !== "custom");
 }
 
 // ══════════════════════════════════════════════════════════════════════
-//  KEY 管理（localStorage）
+//  KEY MANAGEMENT (localStorage)
 // ══════════════════════════════════════════════════════════════════════
 const LS_KEYS  = "energyllm_saved_keys";
 const LS_LAST  = "energyllm_last_key";
@@ -73,7 +73,7 @@ function getSavedKeys() {
 
 function saveKeyEntry(entry) {
   const keys = getSavedKeys().filter(k => k.name !== entry.name);
-  keys.unshift(entry);          // 最新放最前
+  keys.unshift(entry);          // newest first
   localStorage.setItem(LS_KEYS, JSON.stringify(keys));
 }
 
@@ -86,7 +86,7 @@ function loadLastUsedKey() {
   try {
     const last = JSON.parse(localStorage.getItem(LS_LAST) || "null");
     if (!last) return;
-    applyKeyEntry(last, false);   // 填入表单但不连接
+    applyKeyEntry(last, false);   // populate form without connecting
   } catch {}
 }
 
@@ -105,7 +105,7 @@ function renderSavedKeysList() {
   const list = document.getElementById("savedKeysList");
   const keys = getSavedKeys();
   if (!keys.length) {
-    list.innerHTML = `<div class="saved-keys-empty">暂无保存的 Key</div>`;
+    list.innerHTML = `<div class="saved-keys-empty">No saved keys</div>`;
     return;
   }
   list.innerHTML = keys.map((k, i) => `
@@ -114,11 +114,11 @@ function renderSavedKeysList() {
         <div class="saved-key-name">${escHtml(k.name)}</div>
         <div class="saved-key-meta">${escHtml(k.provider)} / ${escHtml(k.model)}</div>
       </div>
-      <button class="saved-key-delete" data-key-name="${escHtml(k.name)}" title="删除">✕</button>
+      <button class="saved-key-delete" data-key-name="${escHtml(k.name)}" title="Delete">✕</button>
     </div>
   `).join("");
 
-  // 事件委托，避免字符串拼接破坏点击
+  // event delegation to avoid inline handler injection
   list.querySelectorAll(".saved-key-item").forEach((el, i) => {
     el.addEventListener("click", () => applyKeyEntry(keys[i]));
   });
@@ -141,7 +141,7 @@ function toggleKeyManager() {
   panel.classList.toggle("hidden");
 }
 
-// ── Token / 连接 ──────────────────────────────────────────────────────
+// ── Token / Connect ───────────────────────────────────────────────────
 async function setToken() {
   const token    = document.getElementById("tokenInput").value.trim();
   const provider = document.getElementById("providerSelect").value;
@@ -151,7 +151,7 @@ async function setToken() {
   const statusEl = document.getElementById("tokenStatus");
 
   if (!token) {
-    statusEl.textContent = "⚠ Key 为空";
+    statusEl.textContent = "⚠ API key is empty";
     statusEl.className = "token-status fail";
     return;
   }
@@ -161,16 +161,16 @@ async function setToken() {
     if (res.success) {
       statusEl.textContent = `✓ ${res.provider} / ${res.model}`;
       statusEl.className = "token-status ok";
-      document.getElementById("tokenBtn").textContent = "重新连接";
+      document.getElementById("tokenBtn").textContent = "Reconnect";
 
-      // 保存到 localStorage
+      // persist to localStorage
       const entry = { name: saveName || provider, provider, model, token, base_url };
-      if (saveName) saveKeyEntry(entry);                         // 有名称 → 持久保存
-      localStorage.setItem(LS_LAST, JSON.stringify(entry));     // 始终记住最后一次
+      if (saveName) saveKeyEntry(entry);                         // named entry → persist
+      localStorage.setItem(LS_LAST, JSON.stringify(entry));     // always remember last used
       renderSavedKeysList();
     }
   } catch (e) {
-    statusEl.textContent = "✗ 连接失败";
+    statusEl.textContent = "✗ Connection failed";
     statusEl.className = "token-status fail";
   }
 }
@@ -206,10 +206,10 @@ async function sendMessage() {
     }
   } catch (e) {
     thinkingEl.remove();
-    // 区分：真正的网络断连 vs 后端返回的 API 错误
+    // distinguish real network failure from backend API errors
     const isNetworkDown = e instanceof TypeError && e.message.includes("fetch");
     const msg = isNetworkDown
-      ? `❌ 无法连接后端，请确认 start.bat 已运行。`
+      ? `❌ Cannot reach backend — make sure start.sh is running.`
       : `❌ ${e.message}`;
     appendMsg("system", msg);
   } finally {
@@ -292,7 +292,7 @@ async function manualUpdateSlot(slot, value) {
 async function applyTemplate(name) {
   try {
     const res = await post("/apply-template", { name });
-    // 保留上次的模板列表，让用户可以继续换选
+    // keep last template list so user can keep switching
     updateStatePanel({
       state: res.state,
       missing_slots: res.missing_slots,
@@ -300,7 +300,7 @@ async function applyTemplate(name) {
       derived: res.derived,
       template_matches: _lastTemplateMatches,
     });
-    // 高亮当前选中的卡片
+    // highlight the selected card
     document.querySelectorAll(".template-card").forEach(card => {
       card.classList.toggle("selected", card.dataset.tplName === name);
     });
@@ -364,19 +364,19 @@ function updateStatePanel(data) {
   const { state, missing_slots, conflicts, derived, template_matches } = data;
 
   // ── Parameters ──────────────────────────────────────────────────
-  renderParam("total_cells",    state.total_cells,    false, missing_slots);
-  renderParam("num_groups",     state.num_groups,     true,  missing_slots);
-  renderParam("cells_per_group",state.cells_per_group,true,  missing_slots);
+  renderParam("total_cells",     state.total_cells,    false);
+  renderParam("num_groups",      state.num_groups,     true);
+  renderParam("cells_per_group", state.cells_per_group,true);
   renderParam("cooling_type",
     state.cooling_type !== null ? `${state.cooling_type} — ${COOLING_LABELS[state.cooling_type]}` : null,
-    true, missing_slots, "cooling_type");
-  renderParam("coolant_channels", state.coolant_channels, true, missing_slots);
+    true);
+  renderParam("coolant_channels", state.coolant_channels, true);
 
   // coolant_size is an array
   const sizeVal = state.coolant_size && state.coolant_size.length > 0
     ? "[" + state.coolant_size.join(", ") + "]"
     : null;
-  renderParam("coolant_size", sizeVal, true, missing_slots);
+  renderParam("coolant_size", sizeVal, true);
 
   // Layout
   const lf = state.layout_features || {};
@@ -384,7 +384,7 @@ function updateStatePanel(data) {
   if (lf.pattern === "corner_cut") layoutText += ` (corner=${lf.corner_size || 1})`;
   if (lf.pattern === "with_gaps")  layoutText += ` ${state.num_groups || "?"}×${state.cells_per_group || "?"}`;
   if (lf.details) layoutText += ` / ${lf.details}`;
-  setParamValue("val-layout", layoutText, false);
+  setParamValue("val-layout", layoutText);
   // also sync the corner_size display value
   const csizeVal = document.getElementById("val-corner_size");
   if (csizeVal) csizeVal.textContent = lf.corner_size || 1;
@@ -395,7 +395,7 @@ function updateStatePanel(data) {
   if (c.max_temp !== undefined) parts.push(`T < ${c.max_temp}°C`);
   if (c.current  !== undefined) parts.push(`I = ${c.current} A`);
   if (c.power    !== undefined) parts.push(`P = ${c.power} W`);
-  setParamValue("val-constraints", parts.length ? parts.join(", ") : null, false);
+  setParamValue("val-constraints", parts.length ? parts.join(", ") : null);
 
   // Sync input controls with current state values
   syncInputs(state);
@@ -442,7 +442,7 @@ function updateStatePanel(data) {
   const tplCards   = document.getElementById("templateCards");
 
   if (template_matches && template_matches.length > 0) {
-    _lastTemplateMatches = template_matches;   // 记住最新列表
+    _lastTemplateMatches = template_matches;   // cache latest list
     tplCards.innerHTML = template_matches.map(t => `
       <div class="template-card" data-tpl-name="${escHtml(t.name)}">
         <div class="template-card-name">${escHtml(t.name)}</div>
@@ -454,17 +454,15 @@ function updateStatePanel(data) {
     });
     tplSection.classList.remove("hidden");
   }
-  // template_matches 为空时不隐藏，保留上次列表（用户可继续换选）
+  // when template_matches is empty, keep previous list visible
 }
 
-function renderParam(slot, value, required, missing_slots, rawSlot) {
+function renderParam(slot, value, required) {
   const iconEl = document.getElementById(`icon-${slot}`);
   const valEl  = document.getElementById(`val-${slot}`);
   const rowEl  = document.getElementById(`row-${slot}`);
 
   if (!iconEl || !valEl) return;
-
-  const isMissing = required && (!value && value !== 0);
 
   if (value !== null && value !== undefined) {
     valEl.textContent = value;
@@ -483,7 +481,7 @@ function renderParam(slot, value, required, missing_slots, rawSlot) {
   }
 }
 
-function setParamValue(id, value, required) {
+function setParamValue(id, value) {
   const el = document.getElementById(id);
   if (!el) return;
   if (value) {
@@ -496,7 +494,7 @@ function setParamValue(id, value, required) {
 }
 
 function syncInputs(state) {
-  // 始终用实际状态值同步输入框，保持左右一致
+  // keep input controls in sync with actual state values
   const numFields = ["total_cells","num_groups","cells_per_group","coolant_channels"];
   for (const f of numFields) {
     const el = document.getElementById(`input-${f}`);
@@ -513,7 +511,7 @@ function syncInputs(state) {
   const pattern = lf.pattern || "standard";
   const patternSel = document.getElementById("input-layout_pattern");
   if (patternSel) {
-    // with_gaps presets: map back to the option values
+    // with_gaps presets: map state back to select option values
     if (pattern === "with_gaps") {
       const g = state.num_groups, c = state.cells_per_group;
       patternSel.value = (g === 6 && c === 74) ? "with_gaps_6x74"
@@ -560,7 +558,7 @@ async function onLayoutPatternChange() {
 
   const data = await post("/update-layout", { pattern, corner_size: cornerSize });
   if (data && data.error) {
-    appendMsg("system", `❌ Layout 更新失败: ${data.error}`);
+    appendMsg("system", `❌ Layout update failed: ${data.error}`);
   } else if (data) {
     updateStatePanel(data);
   }
@@ -670,15 +668,15 @@ async function post(path, body = {}) {
       body: JSON.stringify(body),
     });
   } catch (e) {
-    return { error: `网络错误: 无法连接后端 (${e.message})` };
+    return { error: `Network error: cannot reach backend (${e.message})` };
   }
   let data;
   try {
     data = await r.json();
   } catch (e) {
-    return { error: `服务器返回了非 JSON 响应 (HTTP ${r.status})，请确认 start.sh 正在运行` };
+    return { error: `Server returned a non-JSON response (HTTP ${r.status}) — make sure start.sh is running` };
   }
-  // 统一把 HTTP 错误转成 {error: ...} 返回，不 throw（由调用方决定如何展示）
+  // normalise HTTP errors into {error:...} instead of throwing
   if (!r.ok && !data.error) data.error = `HTTP ${r.status}`;
   return data;
 }
