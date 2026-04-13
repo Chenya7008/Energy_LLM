@@ -42,7 +42,7 @@ const PROVIDER_MODELS = {
   anthropic: ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001"],
   openai:    ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
   deepseek:  ["deepseek-chat", "deepseek-reasoner"],
-  gemini:    ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro", "gemini-1.5-flash"],
+  gemini:    ["gemini-3.1-pro-preview", "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro"],
   custom:    [],
 };
 

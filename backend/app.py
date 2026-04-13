@@ -51,7 +51,7 @@ PROVIDER_DEFAULTS = {
     "anthropic": "claude-sonnet-4-6",
     "openai":    "gpt-4o",
     "deepseek":  "deepseek-chat",
-    "gemini":    "gemini-2.0-flash",
+    "gemini":    "gemini-3.1-pro-preview",
     "custom":    "gpt-4o",
 }
 

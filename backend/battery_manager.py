@@ -212,7 +212,7 @@ class BatteryManager:
         lines += ["", "#endif // BATTERY_CONFIG_H", ""]
         return "\n".join(lines)
 
-    def _generate_scheme(self) -> dict | None:
+    def _generate_scheme(self) -> Optional[dict]:
         """
         返回 scheme 数组及其元信息，供 generate_header() 使用。
 
