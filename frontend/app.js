@@ -783,9 +783,17 @@ let _schemeCpg      = 1;      // cells_per_group for colour coding
 let _schemeOpen     = false;
 let _hoverCell      = null;
 let _cellSize       = 16;
-let _schemeZoomStep = 16;     // current cell size in px (zoom proxy)
-let _schemeTarget   = 0;      // num_groups × cells_per_group
+let _schemeZoomStep  = 16;
+let _schemeTarget    = 0;
 let _schemeNumGroups = 0;
+
+// Drag state
+let _isDragging      = false;
+let _dragGroupCells  = [];     // [{r,c,v}] cells being dragged
+let _dragStartR      = 0;
+let _dragStartC      = 0;
+let _dragDeltaR      = 0;
+let _dragDeltaC      = 0;
 
 // ── Zoom ─────────────────────────────────────────────────────────────
 
@@ -899,27 +907,34 @@ function renderSchemeCanvas() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   const showNum = _cellSize >= 15;
-  const cpg = _schemeCpg || 1;
+  const cpg     = _schemeCpg || 1;
+
+  // Set of cells being dragged (for skipping at original position)
+  const dragSet = new Set(_dragGroupCells.map(d => d.r * 10000 + d.c));
 
   for (let r = 0; r < _schemeRows; r++) {
     for (let c = 0; c < _schemeCols; c++) {
-      const v   = _scheme[r][c];
-      const x   = c * _cellSize;
-      const y   = r * _cellSize;
-      const grp = v > 0 ? Math.floor((v - 1) / cpg) % GROUP_PALETTE.length : -1;
-      const isHover = _hoverCell && _hoverCell[0] === r && _hoverCell[1] === c;
+      const v         = _scheme[r][c];
+      const x         = c * _cellSize;
+      const y         = r * _cellSize;
+      const grp       = v > 0 ? Math.floor((v - 1) / cpg) % GROUP_PALETTE.length : -1;
+      const isHover   = !_isDragging && _hoverCell && _hoverCell[0] === r && _hoverCell[1] === c;
+      const isDragSrc = _isDragging && dragSet.has(r * 10000 + c);
 
-      // Cell fill
+      // Skip original position while dragging (draw ghost instead)
+      if (isDragSrc && (_dragDeltaR !== 0 || _dragDeltaC !== 0)) continue;
+
       if (v === 0) {
         ctx.fillStyle = isHover ? "#c8c8c8" : "#e4e4e4";
       } else {
         const base = GROUP_PALETTE[grp];
-        ctx.fillStyle = isHover ? base + "ff" : base + "cc";
+        ctx.fillStyle = isDragSrc ? base + "55"
+                      : isHover   ? base + "ff"
+                      :             base + "cc";
       }
       ctx.fillRect(x, y, _cellSize - 1, _cellSize - 1);
 
-      // Number label
-      if (showNum && v > 0) {
+      if (showNum && v > 0 && !isDragSrc) {
         ctx.fillStyle = "#222";
         ctx.font = `${Math.max(7, _cellSize - 7)}px monospace`;
         ctx.textAlign = "center";
@@ -927,6 +942,35 @@ function renderSchemeCanvas() {
         ctx.fillText(String(v), x + _cellSize / 2, y + _cellSize / 2);
       }
     }
+  }
+
+  // Draw dragged group at offset (ghost / preview)
+  if (_isDragging && (_dragDeltaR !== 0 || _dragDeltaC !== 0)) {
+    ctx.setLineDash([3, 2]);
+    for (const cell of _dragGroupCells) {
+      const nr = cell.r + _dragDeltaR;
+      const nc = cell.c + _dragDeltaC;
+      if (nr < 0 || nr >= _schemeRows || nc < 0 || nc >= _schemeCols) continue;
+      const grp  = Math.floor((cell.v - 1) / cpg) % GROUP_PALETTE.length;
+      const base = GROUP_PALETTE[grp];
+      const x    = nc * _cellSize;
+      const y    = nr * _cellSize;
+      ctx.fillStyle = base + "bb";
+      ctx.fillRect(x, y, _cellSize - 1, _cellSize - 1);
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth   = 1.5;
+      ctx.strokeRect(x + 0.5, y + 0.5, _cellSize - 2, _cellSize - 2);
+      if (showNum) {
+        ctx.setLineDash([]);
+        ctx.fillStyle = "#222";
+        ctx.font = `${Math.max(7, _cellSize - 7)}px monospace`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(String(cell.v), x + _cellSize / 2, y + _cellSize / 2);
+        ctx.setLineDash([3, 2]);
+      }
+    }
+    ctx.setLineDash([]);
   }
 }
 
@@ -941,14 +985,69 @@ function _canvasCoords(e) {
   ];
 }
 
-function _onSchemeClick(e) {
-  if (!_scheme) return;
+function _onSchemeMouseDown(e) {
+  if (!_scheme || e.button !== 0) return;
   const [r, c] = _canvasCoords(e);
   if (r < 0 || r >= _schemeRows || c < 0 || c >= _schemeCols) return;
 
-  // Toggle: 0 → placeholder (-1), non-zero → 0
-  _scheme[r][c] = _scheme[r][c] === 0 ? -1 : 0;
-  _renumberInPlace("row");
+  const v = _scheme[r][c];
+  if (v === 0) return;  // only drag non-empty cells
+
+  // Identify and collect all cells in the same group
+  const cpg = _schemeCpg || 1;
+  const grp = Math.floor((v - 1) / cpg);
+  _dragGroupCells = [];
+  for (let ri = 0; ri < _schemeRows; ri++)
+    for (let ci = 0; ci < _schemeCols; ci++) {
+      const cv = _scheme[ri][ci];
+      if (cv > 0 && Math.floor((cv - 1) / cpg) === grp)
+        _dragGroupCells.push({ r: ri, c: ci, v: cv });
+    }
+
+  _isDragging  = true;
+  _dragStartR  = r;
+  _dragStartC  = c;
+  _dragDeltaR  = 0;
+  _dragDeltaC  = 0;
+
+  const canvas = document.getElementById("schemeCanvas");
+  canvas.style.cursor = "grabbing";
+  e.preventDefault();
+}
+
+function _onSchemeMouseUp(e) {
+  if (!_isDragging) return;
+  _isDragging = false;
+  const canvas = document.getElementById("schemeCanvas");
+  canvas.style.cursor = "";
+
+  const dr = _dragDeltaR;
+  const dc = _dragDeltaC;
+
+  if (dr === 0 && dc === 0) {
+    // No movement → treat as click (toggle)
+    const [r, c] = _canvasCoords(e);
+    if (r >= 0 && r < _schemeRows && c >= 0 && c < _schemeCols) {
+      _scheme[r][c] = _scheme[r][c] === 0 ? -1 : 0;
+      _renumberInPlace("row");
+    }
+  } else {
+    // Check all destination cells are in bounds
+    const canMove = _dragGroupCells.every(cell => {
+      const nr = cell.r + dr, nc = cell.c + dc;
+      return nr >= 0 && nr < _schemeRows && nc >= 0 && nc < _schemeCols;
+    });
+    if (canMove) {
+      const next = _scheme.map(row => [...row]);
+      for (const cell of _dragGroupCells) next[cell.r][cell.c] = 0;
+      for (const cell of _dragGroupCells) next[cell.r + dr][cell.c + dc] = cell.v;
+      _scheme = next;
+    }
+  }
+
+  _dragGroupCells = [];
+  _dragDeltaR = 0;
+  _dragDeltaC = 0;
   renderSchemeCanvas();
   _validateSchemeUI();
   _saveSchemeDebounced();
@@ -957,17 +1056,27 @@ function _onSchemeClick(e) {
 function _onSchemeMouseMove(e) {
   if (!_scheme) return;
   const [r, c] = _canvasCoords(e);
-  if (r < 0 || r >= _schemeRows || c < 0 || c >= _schemeCols) {
-    _hoverCell = null;
+
+  if (_isDragging) {
+    _dragDeltaR = r - _dragStartR;
+    _dragDeltaC = c - _dragStartC;
+    _hoverCell  = null;
   } else {
-    _hoverCell = [r, c];
-    const v   = _scheme[r][c];
-    const cpg = _schemeCpg || 1;
-    const grp = v > 0 ? Math.floor((v - 1) / cpg) + 1 : null;
-    document.getElementById("schemeHoverInfo").textContent =
-      v === 0
-        ? `(row ${r}, col ${c}) — empty`
-        : `(row ${r}, col ${c}) — cell #${v}${grp ? `, group ${grp}` : ""}`;
+    if (r < 0 || r >= _schemeRows || c < 0 || c >= _schemeCols) {
+      _hoverCell = null;
+    } else {
+      _hoverCell = [r, c];
+      const v   = _scheme[r][c];
+      const cpg = _schemeCpg || 1;
+      const grp = v > 0 ? Math.floor((v - 1) / cpg) + 1 : null;
+      document.getElementById("schemeHoverInfo").textContent =
+        v === 0
+          ? `(${r}, ${c}) — empty`
+          : `(${r}, ${c}) — cell #${v}, group ${grp}`;
+      // Cursor hint
+      const canvas = document.getElementById("schemeCanvas");
+      canvas.style.cursor = v > 0 ? "grab" : "crosshair";
+    }
   }
   renderSchemeCanvas();
 }
@@ -1105,6 +1214,44 @@ function _buildLegend() {
   }
 }
 
+// ── Edge expand / trim ───────────────────────────────────────────────
+
+function expandScheme(dir) {
+  if (!_scheme) return;
+  if (dir === 'top') {
+    _scheme.unshift(new Array(_schemeCols).fill(0));
+    _schemeRows++;
+  } else if (dir === 'bottom') {
+    _scheme.push(new Array(_schemeCols).fill(0));
+    _schemeRows++;
+  } else if (dir === 'left') {
+    _scheme = _scheme.map(row => [0, ...row]);
+    _schemeCols++;
+  } else if (dir === 'right') {
+    _scheme = _scheme.map(row => [...row, 0]);
+    _schemeCols++;
+  }
+  renderSchemeCanvas();
+  _validateSchemeUI();
+  _saveSchemeDebounced();
+}
+
+function trimScheme() {
+  if (!_scheme) return;
+  // Remove all-zero border rows/cols
+  while (_schemeRows > 1 && _scheme[0].every(v => v === 0))
+    { _scheme.shift(); _schemeRows--; }
+  while (_schemeRows > 1 && _scheme[_schemeRows - 1].every(v => v === 0))
+    { _scheme.pop();   _schemeRows--; }
+  while (_schemeCols > 1 && _scheme.every(row => row[0] === 0))
+    { _scheme = _scheme.map(r => r.slice(1)); _schemeCols--; }
+  while (_schemeCols > 1 && _scheme.every(row => row[_schemeCols - 1] === 0))
+    { _scheme = _scheme.map(r => r.slice(0, -1)); _schemeCols--; }
+  renderSchemeCanvas();
+  _validateSchemeUI();
+  _saveSchemeDebounced();
+}
+
 // ── Reset to auto-generated ───────────────────────────────────────────
 
 async function resetToAutoScheme() {
@@ -1128,14 +1275,20 @@ function _saveSchemeDebounced() {
 document.addEventListener("DOMContentLoaded", () => {
   const canvas = document.getElementById("schemeCanvas");
   if (!canvas) return;
-  canvas.addEventListener("click",     _onSchemeClick);
-  canvas.addEventListener("mousemove", _onSchemeMouseMove);
+  canvas.addEventListener("mousedown",  _onSchemeMouseDown);
+  canvas.addEventListener("mouseup",    _onSchemeMouseUp);
+  canvas.addEventListener("mousemove",  _onSchemeMouseMove);
   canvas.addEventListener("mouseleave", () => {
+    if (_isDragging) { _isDragging = false; _dragGroupCells = []; }
     _hoverCell = null;
     renderSchemeCanvas();
     const el = document.getElementById("schemeHoverInfo");
     if (el) el.textContent = "";
+    const c = document.getElementById("schemeCanvas");
+    if (c) c.style.cursor = "";
   });
+  // Prevent text-select while dragging
+  canvas.addEventListener("dragstart", e => e.preventDefault());
 });
 
 // ── HTTP helpers ──────────────────────────────────────────────────────

@@ -822,3 +822,47 @@ body {
   vertical-align: middle;
 }
 .scheme-fix-btn:hover { background: var(--warn); color: #000; }
+
+/* ── Edge expand / canvas outer layout ──────────────────────────── */
+.canvas-outer {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.canvas-middle-row {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+.edge-zone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.edge-zone.edge-h { width: 100%; }
+.edge-zone.edge-v { flex-shrink: 0; }
+
+.edge-btn-expand {
+  background: var(--surface2);
+  border: 1px dashed var(--border);
+  color: var(--text-dim);
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s;
+  white-space: nowrap;
+}
+.edge-zone.edge-h .edge-btn-expand {
+  width: 100%;
+  padding: 3px 0;
+}
+.edge-zone.edge-v .edge-btn-expand {
+  writing-mode: vertical-rl;
+  padding: 8px 3px;
+  height: 100%;
+}
+.edge-btn-expand:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--surface);
+}

@@ -301,6 +301,7 @@
       <button onclick="renumberScheme('col')" title="Renumber top→bottom, left→right">⟳ Col order</button>
       <span class="toolbar-sep">|</span>
       <button onclick="resetToAutoScheme()" title="Discard edits, regenerate from parameters">↺ Auto-generate</button>
+      <button onclick="trimScheme()" title="Remove all-empty border rows/columns">✂ Trim</button>
       <span class="toolbar-sep">|</span>
       <button onclick="schemeZoom(-1)" title="Zoom out">－</button>
       <span id="schemeZoomLabel" style="font-size:11px;color:var(--text-dim);min-width:34px;text-align:center">100%</span>
@@ -313,13 +314,41 @@
     <!-- Canvas area -->
     <div class="scheme-canvas-col">
       <div id="schemeValidationBar" class="scheme-validation-bar"></div>
-      <div class="scheme-canvas-wrap" id="schemeCanvasWrap">
-        <canvas id="schemeCanvas"></canvas>
+
+      <!-- Edge-expand + canvas -->
+      <div class="canvas-outer">
+        <!-- Top expand -->
+        <div class="edge-zone edge-h">
+          <button class="edge-btn-expand" onclick="expandScheme('top')" title="Add empty row at top">＋ row</button>
+        </div>
+
+        <div class="canvas-middle-row">
+          <!-- Left expand -->
+          <div class="edge-zone edge-v">
+            <button class="edge-btn-expand" onclick="expandScheme('left')" title="Add empty column at left">＋</button>
+          </div>
+
+          <!-- Scrollable canvas -->
+          <div class="scheme-canvas-wrap" id="schemeCanvasWrap">
+            <canvas id="schemeCanvas"></canvas>
+          </div>
+
+          <!-- Right expand -->
+          <div class="edge-zone edge-v">
+            <button class="edge-btn-expand" onclick="expandScheme('right')" title="Add empty column at right">＋</button>
+          </div>
+        </div>
+
+        <!-- Bottom expand -->
+        <div class="edge-zone edge-h">
+          <button class="edge-btn-expand" onclick="expandScheme('bottom')" title="Add empty row at bottom">＋ row</button>
+        </div>
       </div>
+
       <div class="scheme-status-row">
         <span id="schemeCellCount" class="scheme-cell-count">—</span>
         <span id="schemeHoverInfo" class="scheme-hover-info"></span>
-        <span class="scheme-tip">Click cell to toggle empty ↔ active</span>
+        <span class="scheme-tip" id="schemeTip">Click: toggle &nbsp;|&nbsp; Drag group to move</span>
       </div>
     </div>
 
