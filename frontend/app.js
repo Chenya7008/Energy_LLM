@@ -779,6 +779,28 @@ let _schemeCpg      = 1;      // cells_per_group for colour coding
 let _schemeOpen     = false;
 let _hoverCell      = null;
 let _cellSize       = 16;
+let _schemeZoomStep = 16;     // current cell size in px (zoom proxy)
+
+// ── Zoom ─────────────────────────────────────────────────────────────
+
+function schemeZoom(dir) {
+  if (dir === 0) {
+    // Fit: choose largest cell size that fits the canvas wrap
+    const wrap = document.getElementById("schemeCanvasWrap");
+    if (!wrap || !_schemeRows || !_schemeCols) return;
+    const maxW = wrap.clientWidth  - 4;
+    const maxH = wrap.clientHeight || 420;
+    const cw = Math.floor(maxW / _schemeCols);
+    const ch = Math.floor(maxH / _schemeRows);
+    _schemeZoomStep = Math.max(5, Math.min(48, Math.min(cw, ch)));
+  } else {
+    const steps = [5, 8, 10, 12, 14, 16, 20, 24, 28, 32, 40, 48];
+    const idx = steps.indexOf(_schemeZoomStep);
+    if (dir > 0) _schemeZoomStep = steps[Math.min(steps.length - 1, idx + 1)];
+    else         _schemeZoomStep = steps[Math.max(0, idx < 0 ? 4 : idx - 1)];
+  }
+  renderSchemeCanvas();
+}
 
 // ── Toggle visibility ────────────────────────────────────────────────
 
@@ -813,7 +835,7 @@ function _applySchemeResult(s) {
   _scheme     = s.data;
   _schemeRows = s.rows;
   _schemeCols = s.cols;
-  renderSchemeCanvas();
+  schemeZoom(0);   // auto-fit on first load / template change
   _validateSchemeUI();
   _buildLegend();
 }
@@ -858,11 +880,11 @@ function renderSchemeCanvas() {
   const canvas = document.getElementById("schemeCanvas");
   if (!wrap || !canvas) return;
 
-  const maxW = Math.max(200, wrap.clientWidth - 4);
-  const maxH = 420;
-  const cw = Math.max(5, Math.min(36, Math.floor(maxW / _schemeCols)));
-  const ch = Math.max(5, Math.min(36, Math.floor(maxH / _schemeRows)));
-  _cellSize = Math.min(cw, ch);
+  _cellSize = _schemeZoomStep;
+
+  // Update zoom label
+  const lbl = document.getElementById("schemeZoomLabel");
+  if (lbl) lbl.textContent = `${_cellSize}px`;
 
   canvas.width  = _cellSize * _schemeCols;
   canvas.height = _cellSize * _schemeRows;

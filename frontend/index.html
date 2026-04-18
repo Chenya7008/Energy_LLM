@@ -301,6 +301,11 @@
       <button onclick="renumberScheme('col')" title="Renumber top→bottom, left→right">⟳ Col order</button>
       <span class="toolbar-sep">|</span>
       <button onclick="resetToAutoScheme()" title="Discard edits, regenerate from parameters">↺ Auto-generate</button>
+      <span class="toolbar-sep">|</span>
+      <button onclick="schemeZoom(-1)" title="Zoom out">－</button>
+      <span id="schemeZoomLabel" style="font-size:11px;color:var(--text-dim);min-width:34px;text-align:center">100%</span>
+      <button onclick="schemeZoom(+1)" title="Zoom in">＋</button>
+      <button onclick="schemeZoom(0)"  title="Fit to window">Fit</button>
     </div>
   </div>
 
