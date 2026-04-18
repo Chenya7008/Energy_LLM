@@ -866,3 +866,6 @@ body {
   color: var(--accent);
   background: var(--surface);
 }
+
+.drag-mode-btn { min-width: 80px; }
+.drag-mode-btn.active { border-color: var(--accent); color: var(--accent); }

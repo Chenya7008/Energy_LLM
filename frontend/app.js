@@ -794,6 +794,18 @@ let _dragStartR      = 0;
 let _dragStartC      = 0;
 let _dragDeltaR      = 0;
 let _dragDeltaC      = 0;
+let _dragModeGroup   = true;   // true = drag whole group, false = single cell
+
+// ── Drag mode toggle ─────────────────────────────────────────────────
+
+function toggleDragMode() {
+  _dragModeGroup = !_dragModeGroup;
+  const btn = document.getElementById("dragModeBtn");
+  if (btn) {
+    btn.textContent = _dragModeGroup ? "Drag: Group" : "Drag: Cell";
+    btn.classList.toggle("active", _dragModeGroup);
+  }
+}
 
 // ── Zoom ─────────────────────────────────────────────────────────────
 
@@ -993,16 +1005,20 @@ function _onSchemeMouseDown(e) {
   const v = _scheme[r][c];
   if (v === 0) return;  // only drag non-empty cells
 
-  // Identify and collect all cells in the same group
+  // Collect cells to drag: single cell or whole group
   const cpg = _schemeCpg || 1;
-  const grp = Math.floor((v - 1) / cpg);
   _dragGroupCells = [];
-  for (let ri = 0; ri < _schemeRows; ri++)
-    for (let ci = 0; ci < _schemeCols; ci++) {
-      const cv = _scheme[ri][ci];
-      if (cv > 0 && Math.floor((cv - 1) / cpg) === grp)
-        _dragGroupCells.push({ r: ri, c: ci, v: cv });
-    }
+  if (_dragModeGroup) {
+    const grp = Math.floor((v - 1) / cpg);
+    for (let ri = 0; ri < _schemeRows; ri++)
+      for (let ci = 0; ci < _schemeCols; ci++) {
+        const cv = _scheme[ri][ci];
+        if (cv > 0 && Math.floor((cv - 1) / cpg) === grp)
+          _dragGroupCells.push({ r: ri, c: ci, v: cv });
+      }
+  } else {
+    _dragGroupCells = [{ r, c, v }];
+  }
 
   _isDragging  = true;
   _dragStartR  = r;

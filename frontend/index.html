@@ -303,6 +303,10 @@
       <button onclick="resetToAutoScheme()" title="Discard edits, regenerate from parameters">↺ Auto-generate</button>
       <button onclick="trimScheme()" title="Remove all-empty border rows/columns">✂ Trim</button>
       <span class="toolbar-sep">|</span>
+      <button id="dragModeBtn" class="drag-mode-btn active" onclick="toggleDragMode()" title="Switch between dragging a whole group or a single cell">
+        Drag: Group
+      </button>
+      <span class="toolbar-sep">|</span>
       <button onclick="schemeZoom(-1)" title="Zoom out">－</button>
       <span id="schemeZoomLabel" style="font-size:11px;color:var(--text-dim);min-width:34px;text-align:center">100%</span>
       <button onclick="schemeZoom(+1)" title="Zoom in">＋</button>
