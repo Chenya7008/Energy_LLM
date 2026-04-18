@@ -94,7 +94,42 @@
 
     <!-- Parameter table -->
     <div class="param-table">
-      <div class="param-section-title">Cell Layout</div>
+      <div class="param-section-title">Cell Type</div>
+
+      <!-- cell_type main select -->
+      <div class="param-row" id="row-cell_type">
+        <div class="param-label">
+          <span class="param-icon" id="icon-cell_type">◉</span>
+          Cell Type
+          <span class="param-hint required-hint">required</span>
+        </div>
+        <div class="param-value" id="val-cell_type">—</div>
+        <div class="param-edit">
+          <select id="input-cell_type" onchange="onCellTypeChange()">
+            <option value="">Select type…</option>
+            <option value="cylindrical">Cylindrical</option>
+            <option value="prismatic">Prismatic</option>
+            <option value="pouch">Pouch</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- cell_subtype (shown only when a type is selected) -->
+      <div class="param-row" id="row-cell_subtype" style="display:none">
+        <div class="param-label">
+          <span class="param-icon" id="icon-cell_subtype">◎</span>
+          Cell Format
+          <span class="param-hint">(optional)</span>
+        </div>
+        <div class="param-value" id="val-cell_subtype">—</div>
+        <div class="param-edit">
+          <select id="input-cell_subtype" onchange="manualUpdateSlot('cell_subtype', this.value)">
+            <option value="">Select format…</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="param-section-title" style="margin-top:10px">Cell Layout</div>
       <div class="param-row" id="row-total_cells">
         <div class="param-label">
           <span class="param-icon" id="icon-total_cells">◎</span>
@@ -236,9 +271,82 @@
         Generate constants.h
       </button>
       <span id="generateHint" class="generate-hint">Fill all required fields first</span>
+      <button class="btn-edit-layout" id="toggleSchemeEditorBtn" onclick="toggleSchemeEditor()">
+        ▼ Edit Layout
+      </button>
     </div>
   </section>
 </main>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!--  LAYOUT EDITOR (full-width, collapsible)                          -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<section class="scheme-editor-panel hidden" id="schemeEditorPanel">
+  <div class="scheme-editor-header">
+    <span>🗺 Layout Editor</span>
+    <div class="scheme-toolbar">
+      <!-- Template selector -->
+      <select id="schemeTemplateSelect">
+        <option value="">Initial template…</option>
+        <option value="standard">Rectangular (standard)</option>
+        <option value="corner_cut">Corner Cut</option>
+        <option value="staggered">Staggered / brick</option>
+        <option value="l_shape">L-Shape</option>
+        <option value="u_shape">U-Shape (hollow)</option>
+        <option value="sedan">Sedan underfloor</option>
+      </select>
+      <button onclick="applySchemeTemplate()">Apply</button>
+      <span class="toolbar-sep">|</span>
+      <button onclick="renumberScheme('row')" title="Renumber left→right, top→bottom">⟳ Row order</button>
+      <button onclick="renumberScheme('col')" title="Renumber top→bottom, left→right">⟳ Col order</button>
+      <span class="toolbar-sep">|</span>
+      <button onclick="resetToAutoScheme()" title="Discard edits, regenerate from parameters">↺ Auto-generate</button>
+    </div>
+  </div>
+
+  <div class="scheme-editor-body">
+    <!-- Canvas area -->
+    <div class="scheme-canvas-col">
+      <div id="schemeValidationBar" class="scheme-validation-bar"></div>
+      <div class="scheme-canvas-wrap" id="schemeCanvasWrap">
+        <canvas id="schemeCanvas"></canvas>
+      </div>
+      <div class="scheme-status-row">
+        <span id="schemeCellCount" class="scheme-cell-count">—</span>
+        <span id="schemeHoverInfo" class="scheme-hover-info"></span>
+        <span class="scheme-tip">Click cell to toggle empty ↔ active</span>
+      </div>
+    </div>
+
+    <!-- Sidebar: legend + advanced params -->
+    <div class="scheme-sidebar-col">
+      <div class="scheme-legend-title">Group colours</div>
+      <div id="schemeLegend" class="scheme-legend"></div>
+
+      <div class="scheme-adv-title" style="margin-top:12px">Template params</div>
+      <div class="scheme-adv-grid">
+        <label>corner_size</label>
+        <input type="number" id="sp-corner_size" value="1" min="1" max="10" style="width:54px"/>
+        <label>cut_rows</label>
+        <input type="number" id="sp-cut_rows"    value="2" min="1" style="width:54px"/>
+        <label>cut_cols</label>
+        <input type="number" id="sp-cut_cols"    value="2" min="1" style="width:54px"/>
+        <label>inner_rows</label>
+        <input type="number" id="sp-inner_rows"  value="2" min="1" style="width:54px"/>
+        <label>inner_cols</label>
+        <input type="number" id="sp-inner_cols"  value="4" min="1" style="width:54px"/>
+        <label>sedan tl</label>
+        <input type="text"   id="sp-top_left"  value="1,1" style="width:54px"/>
+        <label>sedan tr</label>
+        <input type="text"   id="sp-top_right" value="1,1" style="width:54px"/>
+        <label>sedan bl</label>
+        <input type="text"   id="sp-bot_left"  value="1,1" style="width:54px"/>
+        <label>sedan br</label>
+        <input type="text"   id="sp-bot_right" value="1,1" style="width:54px"/>
+      </div>
+    </div>
+  </div>
+</section>
 
 <!-- ══════════════════════════════════════════════════════════════════ -->
 <!--  HEADER PREVIEW MODAL                                             -->

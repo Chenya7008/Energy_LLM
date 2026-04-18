@@ -24,8 +24,32 @@ COOLING_TYPES = {
     3: "E-type",
 }
 
+CELL_TYPES = {
+    "cylindrical": "Cylindrical",
+    "prismatic":   "Prismatic",
+    "pouch":       "Pouch",
+}
+
+CELL_SUBTYPES = {
+    # cylindrical
+    "18650": "Cylindrical 18650 (18×65 mm)",
+    "21700": "Cylindrical 21700 (21×70 mm)",
+    "4680":  "Cylindrical 4680  (46×80 mm)",
+    "26650": "Cylindrical 26650 (26×65 mm)",
+    "14500": "Cylindrical 14500 (14×50 mm)",
+    # prismatic
+    "lfp_prismatic": "Prismatic LFP",
+    "nmc_prismatic": "Prismatic NMC",
+    "nca_prismatic": "Prismatic NCA",
+    # pouch
+    "lfp_pouch": "Pouch LFP",
+    "nmc_pouch": "Pouch NMC",
+    "nca_pouch": "Pouch NCA",
+}
+
 # Slots the user must provide before we can generate a header
 REQUIRED_SLOTS = [
+    "cell_type",
     "num_groups",
     "cells_per_group",
     "cooling_type",
@@ -41,10 +65,14 @@ ALL_NUMERIC_SLOTS = [
     "coolant_channels",
 ]
 
+ALL_STRING_SLOTS = ["cell_type", "cell_subtype"]
+
 
 class BatteryManager:
     def __init__(self):
         self.state = {
+            "cell_type":    None,   # "cylindrical" | "prismatic" | "pouch"
+            "cell_subtype": None,   # e.g. "18650", "21700", "lfp_prismatic", …
             "total_cells": None,
             "num_groups": None,
             "cells_per_group": None,
@@ -57,6 +85,7 @@ class BatteryManager:
                 "corner_size": 1,        # for corner_cut only
             },
             "constraints": {},
+            "user_scheme": None,    # user-edited 2D array; overrides auto-generated scheme
         }
         self.templates = self._load_templates()
         self._scheme_presets = self._load_scheme_presets()
@@ -86,7 +115,9 @@ class BatteryManager:
 
     def update_slot(self, slot: str, value) -> dict:
         """Called when user fills a missing slot directly from the UI."""
-        if slot in ALL_NUMERIC_SLOTS:
+        if slot in ALL_STRING_SLOTS:
+            self.state[slot] = str(value).strip() if value and str(value).strip() else None
+        elif slot in ALL_NUMERIC_SLOTS:
             self.state[slot] = int(value) if value is not None and value != "" else None
         elif slot == "coolant_size":
             if isinstance(value, list):
@@ -114,6 +145,161 @@ class BatteryManager:
                 if self.state[slot] is None:
                     missing.append(slot)
         return missing
+
+    # ── Scheme editor public interface ────────────────────────────────
+
+    def get_scheme(self) -> dict | None:
+        """Return current scheme: user-edited if set, else auto-generated."""
+        if self.state.get("user_scheme") is not None:
+            s = self.state["user_scheme"]
+            rows = len(s)
+            cols = len(s[0]) if s else 0
+            return {"source": "user_edited", "rows": rows, "cols": cols,
+                    "data": s, "description": "User-edited layout"}
+        return self._generate_scheme()
+
+    def set_user_scheme(self, scheme: list) -> dict:
+        self.state["user_scheme"] = scheme
+        return self.validate_scheme(scheme)
+
+    def clear_user_scheme(self) -> None:
+        self.state["user_scheme"] = None
+
+    def validate_scheme(self, scheme: list) -> dict:
+        errors = []
+        if not scheme or not scheme[0]:
+            return {"valid": False, "errors": ["Empty scheme"], "active_cells": 0}
+
+        row_len = len(scheme[0])
+        for i, row in enumerate(scheme):
+            if len(row) != row_len:
+                errors.append(f"Row {i}: length {len(row)} ≠ {row_len}")
+
+        nums = [v for row in scheme for v in row if v != 0]
+        active = len(nums)
+
+        if nums:
+            n_max = max(nums)
+            nums_set = set(nums)
+            missing = set(range(1, n_max + 1)) - nums_set
+            dupes = sorted({v for v in nums if nums.count(v) > 1})
+            if missing:
+                shown = sorted(missing)[:10]
+                errors.append(f"Missing IDs: {shown}{'…' if len(missing) > 10 else ''}")
+            if dupes:
+                errors.append(f"Duplicate IDs: {dupes[:5]}")
+            g = self.state["num_groups"]
+            c = self.state["cells_per_group"]
+            if g and c and active != g * c:
+                errors.append(f"Active cells ({active}) ≠ {g}×{c}={g*c}")
+
+        return {"valid": len(errors) == 0, "errors": errors, "active_cells": active}
+
+    def generate_scheme_template(self, template: str, params: dict) -> dict:
+        """Generate an initial scheme from a named template and save as user_scheme."""
+        g = self.state["num_groups"]
+        c = self.state["cells_per_group"]
+        if not g or not c:
+            return {"error": "Set num_groups and cells_per_group first"}
+
+        dispatch = {
+            "standard":   lambda: {
+                "source": "standard", "rows": g, "cols": c,
+                "data": [[i * c + j + 1 for j in range(c)] for i in range(g)],
+                "description": "Standard rectangular"},
+            "corner_cut": lambda: self._make_corner_cut(
+                g, c, int(params.get("corner_size", 1))),
+            "staggered":  lambda: self._make_staggered(g, c),
+            "l_shape":    lambda: self._make_l_shape(
+                g, c,
+                int(params.get("cut_rows", max(1, g // 4))),
+                int(params.get("cut_cols", max(1, c // 4)))),
+            "u_shape":    lambda: self._make_u_shape(
+                g, c,
+                int(params.get("inner_rows", max(1, g // 3))),
+                int(params.get("inner_cols", max(1, c // 2)))),
+            "sedan":      lambda: self._make_sedan(
+                g, c,
+                tuple(params.get("top_left",  [1, 1])),
+                tuple(params.get("top_right", [1, 1])),
+                tuple(params.get("bot_left",  [1, 1])),
+                tuple(params.get("bot_right", [1, 1]))),
+        }
+
+        fn = dispatch.get(template)
+        if not fn:
+            return {"error": f"Unknown template: {template}"}
+
+        result = fn()
+        if result and "data" in result:
+            self.state["user_scheme"] = result["data"]
+        return result
+
+    # ── New shape generators ──────────────────────────────────────────
+
+    def _make_l_shape(self, g: int, c: int, cut_rows: int, cut_cols: int) -> dict:
+        """Rectangle with top-right corner removed."""
+        cut_rows = max(0, min(cut_rows, g - 1))
+        cut_cols = max(0, min(cut_cols, c - 1))
+        cell_id = 1
+        data = []
+        for i in range(g):
+            row = []
+            for j in range(c):
+                if i < cut_rows and j >= c - cut_cols:
+                    row.append(0)
+                else:
+                    row.append(cell_id)
+                    cell_id += 1
+            data.append(row)
+        return {"source": "l_shape", "rows": g, "cols": c, "data": data,
+                "description": f"L-shape (cut {cut_rows}×{cut_cols} top-right)"}
+
+    def _make_u_shape(self, g: int, c: int, inner_rows: int, inner_cols: int) -> dict:
+        """Rectangle with a rectangular hole cut from the bottom centre."""
+        inner_rows = max(1, min(inner_rows, g - 2))
+        inner_cols = max(1, min(inner_cols, c - 2))
+        col_s = (c - inner_cols) // 2
+        col_e = col_s + inner_cols
+        row_s = g - inner_rows
+        cell_id = 1
+        data = []
+        for i in range(g):
+            row = []
+            for j in range(c):
+                if i >= row_s and col_s <= j < col_e:
+                    row.append(0)
+                else:
+                    row.append(cell_id)
+                    cell_id += 1
+            data.append(row)
+        return {"source": "u_shape", "rows": g, "cols": c, "data": data,
+                "description": f"U-shape (inner {inner_rows}×{inner_cols})"}
+
+    def _make_sedan(self, g: int, c: int,
+                    tl: tuple = (1, 1), tr: tuple = (1, 1),
+                    bl: tuple = (1, 1), br: tuple = (1, 1)) -> dict:
+        """Asymmetric corner notches — typical EV underfloor shape."""
+        def _cut(i, j):
+            if i < tl[0] and j < tl[1]:            return True
+            if i < tr[0] and j >= c - tr[1]:        return True
+            if i >= g - bl[0] and j < bl[1]:        return True
+            if i >= g - br[0] and j >= c - br[1]:   return True
+            return False
+
+        cell_id = 1
+        data = []
+        for i in range(g):
+            row = []
+            for j in range(c):
+                if _cut(i, j):
+                    row.append(0)
+                else:
+                    row.append(cell_id)
+                    cell_id += 1
+            data.append(row)
+        return {"source": "sedan", "rows": g, "cols": c, "data": data,
+                "description": f"Sedan underfloor tl={tl} tr={tr} bl={bl} br={br}"}
 
     def apply_template_by_name(self, name: str) -> dict:
         """Apply a specific template chosen by the user from UI."""
@@ -148,6 +334,10 @@ class BatteryManager:
         tot_size  = sum(sizes)
         cooling_name = COOLING_TYPES.get(s["cooling_type"], "UNKNOWN")
 
+        cell_type    = s.get("cell_type")    or "unknown"
+        cell_subtype = s.get("cell_subtype") or ""
+        cell_label   = CELL_SUBTYPES.get(cell_subtype) or CELL_TYPES.get(cell_type, cell_type)
+
         lines = [
             "// Auto-generated by Energy LLM Battery Configurator",
             "// DO NOT EDIT — regenerate via the web interface",
@@ -155,13 +345,20 @@ class BatteryManager:
             "#ifndef BATTERY_CONFIG_H",
             "#define BATTERY_CONFIG_H",
             "",
+            f'// Cell type        : {cell_label}',
+            f'#define CELL_TYPE    "{cell_type}"',
+        ]
+        if cell_subtype:
+            lines.append(f'#define CELL_SUBTYPE "{cell_subtype}"')
+        lines += [
+            "",
             f"#define NUM_GROUPS {g}",
             f"#define CELLS_PER_GROUP {c}",
             f"#define N_BATT (NUM_GROUPS*CELLS_PER_GROUP)",
         ]
 
         # ── Scheme array ──────────────────────────────────────────────
-        scheme_result = self._generate_scheme()
+        scheme_result = self.get_scheme()
         if scheme_result is not None:
             r   = scheme_result["rows"]
             col = scheme_result["cols"]
@@ -356,7 +553,10 @@ class BatteryManager:
         """清空所有参数槽位（保留 constraints），用于 custom 意图开始新配置。"""
         for key in ALL_NUMERIC_SLOTS:
             self.state[key] = None
+        for key in ALL_STRING_SLOTS:
+            self.state[key] = None
         self.state["coolant_size"] = []
+        self.state["user_scheme"] = None
         self.state["layout_features"] = {"pattern": "standard", "details": None}
 
     def get_all_templates(self) -> list:
@@ -493,6 +693,13 @@ class BatteryManager:
 
     def _apply_params(self, params: dict, is_override: bool) -> list:
         msgs = []
+        for key in ALL_STRING_SLOTS:
+            val = params.get(key)
+            if val is not None and str(val).strip():
+                if is_override or self.state[key] is None:
+                    self.state[key] = str(val).strip()
+                    msgs.append(f"Set {key} = {val}")
+
         for key in ALL_NUMERIC_SLOTS:
             val = params.get(key)
             if val is not None:
@@ -512,6 +719,8 @@ class BatteryManager:
         for key in ALL_NUMERIC_SLOTS:
             self.state[key] = p.get(key)
         self.state["coolant_size"] = list(p.get("coolant_size", []))
+        self.state["cell_type"]    = p.get("cell_type")
+        self.state["cell_subtype"] = p.get("cell_subtype")
         lf = template.get("layout_features", {})
         self.state["layout_features"]["pattern"] = lf.get("pattern", "standard")
         self.state["layout_features"]["details"] = lf.get("details")

@@ -71,7 +71,15 @@ You are a highly precise Data Extraction Assistant for a Battery Thermal Simulat
    - "C" shape or C-type  → 1
    - "SS" / Double S      → 2
    - "E" shape or E-type  → 3
-4. CATEGORY PURITY:
+4. STRICT MAPPING for cell_type and cell_subtype:
+   - Any mention of "18650", "21700", "4680", "26650", "14500" → cell_type: "cylindrical", cell_subtype: the number (e.g. "18650")
+   - "cylindrical", "cylinder", "round cell" → cell_type: "cylindrical", cell_subtype: null (unless size is stated)
+   - "prismatic", "rectangular", "hard case", "square cell" → cell_type: "prismatic"
+   - For prismatic, if chemistry is stated: LFP → cell_subtype: "lfp_prismatic", NMC → "nmc_prismatic", NCA → "nca_prismatic"
+   - "pouch", "soft pack", "laminate" → cell_type: "pouch"
+   - For pouch, if chemistry is stated: LFP → cell_subtype: "lfp_pouch", NMC → "nmc_pouch", NCA → "nca_pouch"
+   - If cell type is not mentioned at all → cell_type: null, cell_subtype: null
+5. CATEGORY PURITY:
    - `layout_features.details`: ONLY physical geometric descriptions ("8x8 grid", "L-shaped", "circular array"). Nothing else.
    - `llm_reasoning.assumptions_made`: ALL non-geometric info goes here — performance goals ("45°C max"), fluids ("water-glycol"), verbal nuances.
 5. LAYOUT PATTERN:
@@ -93,6 +101,8 @@ Output ONLY a valid JSON object. No markdown fences, no explanation, no extra te
     "search_keyword": "<string or 'none'>"
   },
   "simulation_parameters": {
+    "cell_type": "<'cylindrical' | 'prismatic' | 'pouch' or null>",
+    "cell_subtype": "<'18650'|'21700'|'4680'|'26650'|'14500'|'lfp_prismatic'|'nmc_prismatic'|'nca_prismatic'|'lfp_pouch'|'nmc_pouch'|'nca_pouch' or null>",
     "total_cells": <integer or null>,
     "num_groups": <integer or null>,
     "cells_per_group": <integer or null>,
@@ -340,7 +350,8 @@ def update_slot():
     slot  = data.get("slot")
     value = data.get("value")
 
-    if slot not in ["total_cells","num_groups","cells_per_group",
+    if slot not in ["cell_type","cell_subtype",
+                    "total_cells","num_groups","cells_per_group",
                     "cooling_type","coolant_channels","coolant_size",
                     "layout_pattern","corner_size"]:
         return jsonify({"error": f"未知槽位: {slot}"}), 400
@@ -400,6 +411,54 @@ def reset():
     _battery.reset()
     _history = []
     return jsonify({"success": True, "state": _battery.state})
+
+
+# ── Scheme editor endpoints ───────────────────────────────────────────
+
+@app.route("/api/scheme", methods=["GET"])
+def get_scheme():
+    scheme = _battery.get_scheme()
+    if scheme is None:
+        return jsonify({"scheme": None,
+                        "hint": "Set num_groups and cells_per_group first"})
+    return jsonify({"success": True, "scheme": scheme})
+
+
+@app.route("/api/generate-scheme", methods=["POST"])
+def generate_scheme():
+    data = request.json or {}
+    template = data.get("template", "standard")
+    params   = data.get("params", {})
+    result = _battery.generate_scheme_template(template, params)
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify({"success": True, "scheme": result})
+
+
+@app.route("/api/update-scheme", methods=["POST"])
+def update_scheme():
+    data = request.json or {}
+    scheme = data.get("scheme")
+    if not scheme:
+        return jsonify({"error": "No scheme provided"}), 400
+    result = _battery.set_user_scheme(scheme)
+    return jsonify({"success": True, **result})
+
+
+@app.route("/api/validate-scheme", methods=["POST"])
+def validate_scheme():
+    data = request.json or {}
+    scheme = data.get("scheme")
+    if not scheme:
+        return jsonify({"error": "No scheme provided"}), 400
+    return jsonify(_battery.validate_scheme(scheme))
+
+
+@app.route("/api/reset-scheme", methods=["POST"])
+def reset_scheme():
+    _battery.clear_user_scheme()
+    scheme = _battery.get_scheme()
+    return jsonify({"success": True, "scheme": scheme})
 
 
 if __name__ == "__main__":

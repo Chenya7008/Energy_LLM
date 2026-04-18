@@ -11,6 +11,33 @@ const COOLING_LABELS = {
   3: "E-type",
 };
 
+const CELL_TYPE_LABELS = {
+  cylindrical: "Cylindrical",
+  prismatic:   "Prismatic",
+  pouch:       "Pouch",
+};
+
+// Subtypes per main type  { value, label }
+const CELL_SUBTYPES = {
+  cylindrical: [
+    { value: "18650", label: "18650  (18×65 mm)" },
+    { value: "21700", label: "21700  (21×70 mm)" },
+    { value: "4680",  label: "4680   (46×80 mm)" },
+    { value: "26650", label: "26650  (26×65 mm)" },
+    { value: "14500", label: "14500  (14×50 mm)" },
+  ],
+  prismatic: [
+    { value: "lfp_prismatic", label: "LFP Prismatic" },
+    { value: "nmc_prismatic", label: "NMC Prismatic" },
+    { value: "nca_prismatic", label: "NCA Prismatic" },
+  ],
+  pouch: [
+    { value: "lfp_pouch", label: "LFP Pouch" },
+    { value: "nmc_pouch", label: "NMC Pouch" },
+    { value: "nca_pouch", label: "NCA Pouch" },
+  ],
+};
+
 let _lastHeaderContent = "";
 let _lastTemplateMatches = [];   // retain last template list so it persists after selection
 
@@ -245,7 +272,7 @@ async function resetSession() {
     updateStatePanel({
       state: res.state,
       missing_slots: Object.keys(res.state).filter(k =>
-        ["num_groups","cells_per_group","cooling_type","coolant_channels","coolant_size"].includes(k) &&
+        ["cell_type","num_groups","cells_per_group","cooling_type","coolant_channels","coolant_size"].includes(k) &&
         (res.state[k] === null || (Array.isArray(res.state[k]) && res.state[k].length === 0))
       ),
       conflicts: [],
@@ -360,10 +387,28 @@ function downloadHeader() {
 //  STATE PANEL RENDERING
 // ══════════════════════════════════════════════════════════════════════
 
+function _subtypeLabel(subtype) {
+  for (const opts of Object.values(CELL_SUBTYPES)) {
+    const found = opts.find(o => o.value === subtype);
+    if (found) return found.label;
+  }
+  return subtype;
+}
+
 function updateStatePanel(data) {
   const { state, missing_slots, conflicts, derived, template_matches } = data;
 
+  // Keep canvas colour coding in sync
+  if (state.cells_per_group) _schemeCpg = state.cells_per_group;
+
   // ── Parameters ──────────────────────────────────────────────────
+  renderParam("cell_type",
+    state.cell_type ? CELL_TYPE_LABELS[state.cell_type] || state.cell_type : null,
+    true);
+  renderParam("cell_subtype",
+    state.cell_subtype ? _subtypeLabel(state.cell_subtype) : null,
+    false);
+
   renderParam("total_cells",     state.total_cells,    false);
   renderParam("num_groups",      state.num_groups,     true);
   renderParam("cells_per_group", state.cells_per_group,true);
@@ -494,6 +539,32 @@ function setParamValue(id, value) {
 }
 
 function syncInputs(state) {
+  // Cell type / subtype
+  const ctEl = document.getElementById("input-cell_type");
+  if (ctEl) {
+    ctEl.value = state.cell_type || "";
+    // rebuild subtype options if needed
+    const subtypeRow = document.getElementById("row-cell_subtype");
+    const subtypeSel = document.getElementById("input-cell_subtype");
+    if (state.cell_type && CELL_SUBTYPES[state.cell_type]) {
+      // only rebuild if options don't match
+      const currentOpts = Array.from(subtypeSel.options).map(o => o.value);
+      const expected    = CELL_SUBTYPES[state.cell_type].map(o => o.value);
+      if (JSON.stringify(currentOpts.slice(1)) !== JSON.stringify(expected)) {
+        subtypeSel.innerHTML = '<option value="">Select format…</option>';
+        CELL_SUBTYPES[state.cell_type].forEach(opt => {
+          const el = document.createElement("option");
+          el.value = opt.value; el.textContent = opt.label;
+          subtypeSel.appendChild(el);
+        });
+      }
+      subtypeRow.style.display = "";
+      subtypeSel.value = state.cell_subtype || "";
+    } else {
+      subtypeRow.style.display = "none";
+    }
+  }
+
   // keep input controls in sync with actual state values
   const numFields = ["total_cells","num_groups","cells_per_group","coolant_channels"];
   for (const f of numFields) {
@@ -524,6 +595,39 @@ function syncInputs(state) {
   }
   const csizeEl = document.getElementById("input-corner_size");
   if (csizeEl && lf.corner_size != null) csizeEl.value = lf.corner_size;
+}
+
+// ── Cell type / subtype controls ─────────────────────────────────────
+
+async function onCellTypeChange() {
+  const typeVal  = document.getElementById("input-cell_type").value;
+  const subtypeRow = document.getElementById("row-cell_subtype");
+  const subtypeSel = document.getElementById("input-cell_subtype");
+
+  // Rebuild subtype options
+  subtypeSel.innerHTML = '<option value="">Select format…</option>';
+  if (typeVal && CELL_SUBTYPES[typeVal]) {
+    CELL_SUBTYPES[typeVal].forEach(opt => {
+      const el = document.createElement("option");
+      el.value = opt.value;
+      el.textContent = opt.label;
+      subtypeSel.appendChild(el);
+    });
+    subtypeRow.style.display = "";
+  } else {
+    subtypeRow.style.display = "none";
+  }
+
+  // Clear subtype in state when type changes
+  await post("/update-slot", { slot: "cell_subtype", value: "" });
+  // Save the new type
+  if (typeVal) {
+    const res = await post("/update-slot", { slot: "cell_type", value: typeVal });
+    updateStatePanel({
+      state: res.state, missing_slots: res.missing_slots,
+      conflicts: res.conflicts, derived: res.derived, template_matches: [],
+    });
+  }
 }
 
 // ── Layout pattern controls ───────────────────────────────────────────
@@ -657,6 +761,283 @@ function escHtml(s) {
 function hideBanner(id) {
   document.getElementById(id).classList.add("hidden");
 }
+
+// ══════════════════════════════════════════════════════════════════════
+//  SCHEME / LAYOUT EDITOR
+// ══════════════════════════════════════════════════════════════════════
+
+const GROUP_PALETTE = [
+  "#4f86f7","#ff6b6b","#51cf66","#ffd43b","#cc5de8",
+  "#ff922b","#20c997","#f06595","#74c0fc","#a9e34b",
+  "#e67700","#087f5b","#862e9c","#c92a2a","#1864ab",
+];
+
+let _scheme         = null;   // 2D int array
+let _schemeRows     = 0;
+let _schemeCols     = 0;
+let _schemeCpg      = 1;      // cells_per_group for colour coding
+let _schemeOpen     = false;
+let _hoverCell      = null;
+let _cellSize       = 16;
+
+// ── Toggle visibility ────────────────────────────────────────────────
+
+function toggleSchemeEditor() {
+  _schemeOpen = !_schemeOpen;
+  const panel = document.getElementById("schemeEditorPanel");
+  const btn   = document.getElementById("toggleSchemeEditorBtn");
+  if (_schemeOpen) {
+    panel.classList.remove("hidden");
+    btn.textContent = "▲ Close Editor";
+    loadScheme();
+  } else {
+    panel.classList.add("hidden");
+    btn.textContent = "▼ Edit Layout";
+  }
+}
+
+// ── Load scheme from backend ─────────────────────────────────────────
+
+async function loadScheme() {
+  const res = await get("/scheme");
+  if (!res.scheme) {
+    document.getElementById("schemeValidationBar").textContent =
+      "⚠ Set num_groups and cells_per_group first.";
+    document.getElementById("schemeCellCount").textContent = "—";
+    return;
+  }
+  _applySchemeResult(res.scheme);
+}
+
+function _applySchemeResult(s) {
+  _scheme     = s.data;
+  _schemeRows = s.rows;
+  _schemeCols = s.cols;
+  renderSchemeCanvas();
+  _validateSchemeUI();
+  _buildLegend();
+}
+
+// ── Apply a named initial template ───────────────────────────────────
+
+async function applySchemeTemplate() {
+  const template = document.getElementById("schemeTemplateSelect").value;
+  if (!template) return;
+
+  const params = {
+    corner_size: parseInt(document.getElementById("sp-corner_size").value) || 1,
+    cut_rows:    parseInt(document.getElementById("sp-cut_rows").value)    || 2,
+    cut_cols:    parseInt(document.getElementById("sp-cut_cols").value)    || 2,
+    inner_rows:  parseInt(document.getElementById("sp-inner_rows").value)  || 2,
+    inner_cols:  parseInt(document.getElementById("sp-inner_cols").value)  || 4,
+    top_left:  _parsePair(document.getElementById("sp-top_left").value,  [1,1]),
+    top_right: _parsePair(document.getElementById("sp-top_right").value, [1,1]),
+    bot_left:  _parsePair(document.getElementById("sp-bot_left").value,  [1,1]),
+    bot_right: _parsePair(document.getElementById("sp-bot_right").value, [1,1]),
+  };
+
+  const res = await post("/generate-scheme", { template, params });
+  if (res.error) {
+    document.getElementById("schemeValidationBar").textContent = `❌ ${res.error}`;
+    return;
+  }
+  _applySchemeResult(res.scheme);
+}
+
+function _parsePair(str, fallback) {
+  const parts = str.split(",").map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+  return parts.length === 2 ? parts : fallback;
+}
+
+// ── Canvas rendering ─────────────────────────────────────────────────
+
+function renderSchemeCanvas() {
+  if (!_scheme || !_scheme.length) return;
+
+  const wrap   = document.getElementById("schemeCanvasWrap");
+  const canvas = document.getElementById("schemeCanvas");
+  if (!wrap || !canvas) return;
+
+  const maxW = Math.max(200, wrap.clientWidth - 4);
+  const maxH = 420;
+  const cw = Math.max(5, Math.min(36, Math.floor(maxW / _schemeCols)));
+  const ch = Math.max(5, Math.min(36, Math.floor(maxH / _schemeRows)));
+  _cellSize = Math.min(cw, ch);
+
+  canvas.width  = _cellSize * _schemeCols;
+  canvas.height = _cellSize * _schemeRows;
+
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const showNum = _cellSize >= 15;
+  const cpg = _schemeCpg || 1;
+
+  for (let r = 0; r < _schemeRows; r++) {
+    for (let c = 0; c < _schemeCols; c++) {
+      const v   = _scheme[r][c];
+      const x   = c * _cellSize;
+      const y   = r * _cellSize;
+      const grp = v > 0 ? Math.floor((v - 1) / cpg) % GROUP_PALETTE.length : -1;
+      const isHover = _hoverCell && _hoverCell[0] === r && _hoverCell[1] === c;
+
+      // Cell fill
+      if (v === 0) {
+        ctx.fillStyle = isHover ? "#c8c8c8" : "#e4e4e4";
+      } else {
+        const base = GROUP_PALETTE[grp];
+        ctx.fillStyle = isHover ? base + "ff" : base + "cc";
+      }
+      ctx.fillRect(x, y, _cellSize - 1, _cellSize - 1);
+
+      // Number label
+      if (showNum && v > 0) {
+        ctx.fillStyle = "#222";
+        ctx.font = `${Math.max(7, _cellSize - 7)}px monospace`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(String(v), x + _cellSize / 2, y + _cellSize / 2);
+      }
+    }
+  }
+}
+
+// ── Canvas interaction ───────────────────────────────────────────────
+
+function _canvasCoords(e) {
+  const canvas = document.getElementById("schemeCanvas");
+  const rect   = canvas.getBoundingClientRect();
+  return [
+    Math.floor((e.clientY - rect.top)  / _cellSize),
+    Math.floor((e.clientX - rect.left) / _cellSize),
+  ];
+}
+
+function _onSchemeClick(e) {
+  if (!_scheme) return;
+  const [r, c] = _canvasCoords(e);
+  if (r < 0 || r >= _schemeRows || c < 0 || c >= _schemeCols) return;
+
+  // Toggle: 0 → placeholder (-1), non-zero → 0
+  _scheme[r][c] = _scheme[r][c] === 0 ? -1 : 0;
+  _renumberInPlace("row");
+  renderSchemeCanvas();
+  _validateSchemeUI();
+  _saveSchemeDebounced();
+}
+
+function _onSchemeMouseMove(e) {
+  if (!_scheme) return;
+  const [r, c] = _canvasCoords(e);
+  if (r < 0 || r >= _schemeRows || c < 0 || c >= _schemeCols) {
+    _hoverCell = null;
+  } else {
+    _hoverCell = [r, c];
+    const v   = _scheme[r][c];
+    const cpg = _schemeCpg || 1;
+    const grp = v > 0 ? Math.floor((v - 1) / cpg) + 1 : null;
+    document.getElementById("schemeHoverInfo").textContent =
+      v === 0
+        ? `(row ${r}, col ${c}) — empty`
+        : `(row ${r}, col ${c}) — cell #${v}${grp ? `, group ${grp}` : ""}`;
+  }
+  renderSchemeCanvas();
+}
+
+// ── Renumber ─────────────────────────────────────────────────────────
+
+function _renumberInPlace(order) {
+  let id = 1;
+  if (order === "row") {
+    for (let r = 0; r < _schemeRows; r++)
+      for (let c = 0; c < _schemeCols; c++)
+        if (_scheme[r][c] !== 0) _scheme[r][c] = id++;
+  } else {
+    for (let c = 0; c < _schemeCols; c++)
+      for (let r = 0; r < _schemeRows; r++)
+        if (_scheme[r][c] !== 0) _scheme[r][c] = id++;
+  }
+}
+
+function renumberScheme(order = "row") {
+  if (!_scheme) return;
+  _renumberInPlace(order);
+  renderSchemeCanvas();
+  _validateSchemeUI();
+  _saveSchemeDebounced();
+}
+
+// ── Validate + show status ────────────────────────────────────────────
+
+async function _validateSchemeUI() {
+  if (!_scheme) return;
+  const res = await post("/validate-scheme", { scheme: _scheme });
+  const bar     = document.getElementById("schemeValidationBar");
+  const countEl = document.getElementById("schemeCellCount");
+
+  countEl.textContent = `Active cells: ${res.active_cells}`;
+
+  if (res.valid) {
+    bar.textContent = "✅ Valid — all cell IDs correct";
+    bar.className   = "scheme-validation-bar valid";
+  } else {
+    bar.textContent = "⚠ " + res.errors.join("  |  ");
+    bar.className   = "scheme-validation-bar error";
+  }
+}
+
+// ── Legend ────────────────────────────────────────────────────────────
+
+function _buildLegend() {
+  const cpg = _schemeCpg || 1;
+  const maxId = _scheme ? Math.max(0, ...(_scheme.flat())) : 0;
+  const numGroups = maxId > 0 ? Math.ceil(maxId / cpg) : 0;
+  const el = document.getElementById("schemeLegend");
+  if (!el) return;
+  el.innerHTML = "";
+  for (let g = 0; g < Math.min(numGroups, GROUP_PALETTE.length); g++) {
+    const first = g * cpg + 1;
+    const last  = Math.min((g + 1) * cpg, maxId);
+    el.innerHTML += `
+      <div class="legend-row">
+        <span class="legend-swatch" style="background:${GROUP_PALETTE[g % GROUP_PALETTE.length]}"></span>
+        <span>Group ${g + 1} (${first}–${last})</span>
+      </div>`;
+  }
+}
+
+// ── Reset to auto-generated ───────────────────────────────────────────
+
+async function resetToAutoScheme() {
+  if (!confirm("Discard all edits and regenerate layout from parameters?")) return;
+  const res = await post("/reset-scheme");
+  if (res.scheme) _applySchemeResult(res.scheme);
+}
+
+// ── Debounced save ────────────────────────────────────────────────────
+
+let _saveSchemeTid = null;
+function _saveSchemeDebounced() {
+  clearTimeout(_saveSchemeTid);
+  _saveSchemeTid = setTimeout(async () => {
+    if (_scheme) await post("/update-scheme", { scheme: _scheme });
+  }, 600);
+}
+
+// ── Wire canvas events ────────────────────────────────────────────────
+
+document.addEventListener("DOMContentLoaded", () => {
+  const canvas = document.getElementById("schemeCanvas");
+  if (!canvas) return;
+  canvas.addEventListener("click",     _onSchemeClick);
+  canvas.addEventListener("mousemove", _onSchemeMouseMove);
+  canvas.addEventListener("mouseleave", () => {
+    _hoverCell = null;
+    renderSchemeCanvas();
+    const el = document.getElementById("schemeHoverInfo");
+    if (el) el.textContent = "";
+  });
+});
 
 // ── HTTP helpers ──────────────────────────────────────────────────────
 async function post(path, body = {}) {
