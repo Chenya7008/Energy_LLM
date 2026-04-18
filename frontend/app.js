@@ -398,8 +398,12 @@ function _subtypeLabel(subtype) {
 function updateStatePanel(data) {
   const { state, missing_slots, conflicts, derived, template_matches } = data;
 
-  // Keep canvas colour coding in sync
+  // Keep canvas colour coding and target count in sync
   if (state.cells_per_group) _schemeCpg = state.cells_per_group;
+  if (state.num_groups && state.cells_per_group) {
+    _schemeTarget    = state.num_groups * state.cells_per_group;
+    _schemeNumGroups = state.num_groups;
+  }
 
   // ── Parameters ──────────────────────────────────────────────────
   renderParam("cell_type",
@@ -780,6 +784,8 @@ let _schemeOpen     = false;
 let _hoverCell      = null;
 let _cellSize       = 16;
 let _schemeZoomStep = 16;     // current cell size in px (zoom proxy)
+let _schemeTarget   = 0;      // num_groups × cells_per_group
+let _schemeNumGroups = 0;
 
 // ── Zoom ─────────────────────────────────────────────────────────────
 
@@ -989,22 +995,93 @@ function renumberScheme(order = "row") {
   _saveSchemeDebounced();
 }
 
+// ── Fill empty slots to reach target count ───────────────────────────
+
+function fillSchemeToTarget() {
+  if (!_scheme || !_schemeTarget) return;
+  const active  = _scheme.flat().filter(v => v !== 0).length;
+  const missing = _schemeTarget - active;
+  if (missing <= 0) { _validateSchemeUI(); return; }
+
+  let filled = 0;
+  for (let r = 0; r < _schemeRows && filled < missing; r++)
+    for (let c = 0; c < _schemeCols && filled < missing; c++)
+      if (_scheme[r][c] === 0) { _scheme[r][c] = -1; filled++; }
+
+  _renumberInPlace("row");
+  renderSchemeCanvas();
+  _validateSchemeUI();
+  _buildLegend();
+  _saveSchemeDebounced();
+}
+
+// ── Sync parameters to match actual canvas cell count ────────────────
+
+async function syncParamsToCanvas() {
+  if (!_scheme) return;
+  const active = _scheme.flat().filter(v => v !== 0).length;
+  if (active === 0) return;
+
+  // Update total_cells unconditionally
+  await post("/update-slot", { slot: "total_cells", value: active });
+
+  // If active is divisible by current num_groups, update cells_per_group
+  if (_schemeNumGroups && active % _schemeNumGroups === 0) {
+    const res = await post("/update-slot",
+      { slot: "cells_per_group", value: active / _schemeNumGroups });
+    updateStatePanel({
+      state: res.state, missing_slots: res.missing_slots,
+      conflicts: res.conflicts, derived: res.derived, template_matches: [],
+    });
+  } else {
+    // Otherwise ask user to adjust num_groups manually — just refresh state
+    const res = await post("/update-slot", { slot: "total_cells", value: active });
+    updateStatePanel({
+      state: res.state, missing_slots: res.missing_slots,
+      conflicts: res.conflicts, derived: res.derived, template_matches: [],
+    });
+    appendMsg("ai",
+      `**Canvas has ${active} active cells.** \`total_cells\` updated to ${active}.\n\n` +
+      `${active} ÷ ${_schemeNumGroups || "?"} is not a whole number — ` +
+      `please adjust \`Num Groups\` or \`Cells/Group\` in the panel above.`);
+  }
+  _validateSchemeUI();
+}
+
 // ── Validate + show status ────────────────────────────────────────────
 
 async function _validateSchemeUI() {
   if (!_scheme) return;
-  const res = await post("/validate-scheme", { scheme: _scheme });
+  const res     = await post("/validate-scheme", { scheme: _scheme });
   const bar     = document.getElementById("schemeValidationBar");
   const countEl = document.getElementById("schemeCellCount");
 
   countEl.textContent = `Active cells: ${res.active_cells}`;
 
   if (res.valid) {
-    bar.textContent = "✅ Valid — all cell IDs correct";
-    bar.className   = "scheme-validation-bar valid";
+    bar.innerHTML = "✅ Valid — all cell IDs correct";
+    bar.className = "scheme-validation-bar valid";
   } else {
-    bar.textContent = "⚠ " + res.errors.join("  |  ");
-    bar.className   = "scheme-validation-bar error";
+    const active  = res.active_cells;
+    const target  = _schemeTarget;
+    const diff    = target - active;
+
+    let html = "⚠ " + res.errors.join("  |  ");
+
+    // Offer quick-fix buttons when only the count is wrong
+    const onlyCountWrong = res.errors.length === 1 &&
+      res.errors[0].startsWith("Active cells");
+    if (onlyCountWrong && diff > 0) {
+      html += `&nbsp;&nbsp;<button class="scheme-fix-btn" onclick="fillSchemeToTarget()">
+                 ＋ Fill ${diff} empty cell${diff > 1 ? "s" : ""}</button>`;
+    }
+    if (onlyCountWrong) {
+      html += `&nbsp;<button class="scheme-fix-btn" onclick="syncParamsToCanvas()">
+                 ↕ Sync params to ${active}</button>`;
+    }
+
+    bar.innerHTML = html;
+    bar.className = "scheme-validation-bar error";
   }
 }
 
