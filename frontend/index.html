@@ -285,6 +285,8 @@
   <div class="scheme-editor-header">
     <span>🗺 Layout Editor</span>
     <div class="scheme-toolbar">
+      <button onclick="toggleSchemeEditor()" style="margin-right:4px;border-color:var(--danger);color:var(--danger)" title="Close editor, return to chat">✕ Close</button>
+      <span class="toolbar-sep">|</span>
       <!-- Template selector -->
       <select id="schemeTemplateSelect">
         <option value="">Initial template…</option>
@@ -303,10 +305,6 @@
       <button onclick="resetToAutoScheme()" title="Discard edits, regenerate from parameters">↺ Auto-generate</button>
       <button onclick="trimScheme()" title="Remove all-empty border rows/columns">✂ Trim</button>
       <span class="toolbar-sep">|</span>
-      <button id="dragModeBtn" class="drag-mode-btn active" onclick="toggleDragMode()" title="Switch between dragging a whole group or a single cell">
-        Drag: Group
-      </button>
-      <span class="toolbar-sep">|</span>
       <button onclick="schemeZoom(-1)" title="Zoom out">－</button>
       <span id="schemeZoomLabel" style="font-size:11px;color:var(--text-dim);min-width:34px;text-align:center">100%</span>
       <button onclick="schemeZoom(+1)" title="Zoom in">＋</button>
@@ -319,17 +317,30 @@
     <div class="scheme-canvas-col">
       <div id="schemeValidationBar" class="scheme-validation-bar"></div>
 
+      <!-- Drag mode toggle -->
+      <div class="drag-mode-bar">
+        <span class="drag-mode-label">Mode:</span>
+        <div class="drag-mode-seg">
+          <button id="dragBtnGroup" class="drag-seg-btn active" onclick="setDragMode('group')" title="Drag all cells in a group together&#10;Click L/R half of group to shift it →/←">🔗 Group</button>
+          <button id="dragBtnCell"  class="drag-seg-btn"        onclick="setDragMode('cell')"  title="Drag a single cell independently&#10;Click L/R half of group to shift it →/←">⬜ Cell</button>
+          <button id="dragBtnAdd"   class="drag-seg-btn"        onclick="setDragMode('add')"   title="Click an empty slot to add a new cell&#10;You choose the cell ID in a prompt">＋ Add</button>
+          <button id="dragBtnDel"   class="drag-seg-btn"        onclick="setDragMode('del')"   title="Click a cell to delete it">✕ Del</button>
+        </div>
+      </div>
+
       <!-- Edge-expand + canvas -->
       <div class="canvas-outer">
-        <!-- Top expand -->
+        <!-- Top expand/shrink -->
         <div class="edge-zone edge-h">
-          <button class="edge-btn-expand" onclick="expandScheme('top')" title="Add empty row at top">＋ row</button>
+          <button class="edge-btn-shrink" onclick="shrinkScheme('top')"  title="Remove top row">－ row</button>
+          <button class="edge-btn-expand" onclick="expandScheme('top')"  title="Add empty row at top">＋ row</button>
         </div>
 
         <div class="canvas-middle-row">
-          <!-- Left expand -->
+          <!-- Left expand/shrink -->
           <div class="edge-zone edge-v">
-            <button class="edge-btn-expand" onclick="expandScheme('left')" title="Add empty column at left">＋</button>
+            <button class="edge-btn-shrink" onclick="shrinkScheme('left')"  title="Remove left column">－</button>
+            <button class="edge-btn-expand" onclick="expandScheme('left')"  title="Add empty column at left">＋</button>
           </div>
 
           <!-- Scrollable canvas -->
@@ -337,22 +348,24 @@
             <canvas id="schemeCanvas"></canvas>
           </div>
 
-          <!-- Right expand -->
+          <!-- Right expand/shrink -->
           <div class="edge-zone edge-v">
-            <button class="edge-btn-expand" onclick="expandScheme('right')" title="Add empty column at right">＋</button>
+            <button class="edge-btn-expand" onclick="expandScheme('right')"  title="Add empty column at right">＋</button>
+            <button class="edge-btn-shrink" onclick="shrinkScheme('right')" title="Remove right column">－</button>
           </div>
         </div>
 
-        <!-- Bottom expand -->
+        <!-- Bottom expand/shrink -->
         <div class="edge-zone edge-h">
           <button class="edge-btn-expand" onclick="expandScheme('bottom')" title="Add empty row at bottom">＋ row</button>
+          <button class="edge-btn-shrink" onclick="shrinkScheme('bottom')" title="Remove bottom row">－ row</button>
         </div>
       </div>
 
       <div class="scheme-status-row">
         <span id="schemeCellCount" class="scheme-cell-count">—</span>
         <span id="schemeHoverInfo" class="scheme-hover-info"></span>
-        <span class="scheme-tip" id="schemeTip">Click: toggle &nbsp;|&nbsp; Drag group to move</span>
+        <span class="scheme-tip" id="schemeTip">Click left/right half of group: shift group ← →  |  Drag: move</span>
       </div>
     </div>
 

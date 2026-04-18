@@ -794,17 +794,33 @@ let _dragStartR      = 0;
 let _dragStartC      = 0;
 let _dragDeltaR      = 0;
 let _dragDeltaC      = 0;
-let _dragModeGroup   = true;   // true = drag whole group, false = single cell
+let _dragMode = 'group';  // 'group' | 'cell' | 'add' | 'del'
 
-// ── Drag mode toggle ─────────────────────────────────────────────────
+// ── Drag mode ────────────────────────────────────────────────────────
 
-function toggleDragMode() {
-  _dragModeGroup = !_dragModeGroup;
-  const btn = document.getElementById("dragModeBtn");
-  if (btn) {
-    btn.textContent = _dragModeGroup ? "Drag: Group" : "Drag: Cell";
-    btn.classList.toggle("active", _dragModeGroup);
-  }
+function setDragMode(mode) {
+  _dragMode = mode;
+  ['dragBtnGroup','dragBtnCell','dragBtnAdd','dragBtnDel'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('active');
+  });
+  const activeId = { group:'dragBtnGroup', cell:'dragBtnCell', add:'dragBtnAdd', del:'dragBtnDel' }[mode];
+  const activeEl = document.getElementById(activeId);
+  if (activeEl) activeEl.classList.add('active');
+
+  const canvas = document.getElementById('schemeCanvas');
+  if (canvas) canvas.style.cursor =
+    mode === 'add' ? 'cell' : mode === 'del' ? 'not-allowed' : 'crosshair';
+
+  const tip = document.getElementById('schemeTip');
+  if (!tip) return;
+  const tips = {
+    group: 'Click L/R half → shift group →/←  |  Drag: move whole group',
+    cell:  'Click L/R half → shift group →/←  |  Drag: move single cell',
+    add:   'Click empty cell to add  |  Enter custom cell ID in prompt',
+    del:   'Click a cell to delete it',
+  };
+  tip.textContent = tips[mode];
 }
 
 // ── Zoom ─────────────────────────────────────────────────────────────
@@ -832,14 +848,17 @@ function schemeZoom(dir) {
 
 function toggleSchemeEditor() {
   _schemeOpen = !_schemeOpen;
-  const panel = document.getElementById("schemeEditorPanel");
-  const btn   = document.getElementById("toggleSchemeEditorBtn");
+  const panel  = document.getElementById("schemeEditorPanel");
+  const btn    = document.getElementById("toggleSchemeEditorBtn");
+  const mainEl = document.querySelector("main.layout");
   if (_schemeOpen) {
+    mainEl.style.display = "none";
     panel.classList.remove("hidden");
     btn.textContent = "▲ Close Editor";
     loadScheme();
   } else {
     panel.classList.add("hidden");
+    mainEl.style.display = "";
     btn.textContent = "▼ Edit Layout";
   }
 }
@@ -1001,14 +1020,42 @@ function _onSchemeMouseDown(e) {
   if (!_scheme || e.button !== 0) return;
   const [r, c] = _canvasCoords(e);
   if (r < 0 || r >= _schemeRows || c < 0 || c >= _schemeCols) return;
+  e.preventDefault();
 
+  // ── Del mode: click to remove cell ────────────────────────────────
+  if (_dragMode === 'del') {
+    if (_scheme[r][c] !== 0) {
+      _scheme[r][c] = 0;
+      renderSchemeCanvas(); _validateSchemeUI(); _saveSchemeDebounced();
+    }
+    return;
+  }
+
+  // ── Add mode: click empty cell, prompt for ID ──────────────────────
+  if (_dragMode === 'add') {
+    if (_scheme[r][c] !== 0) return;  // only place on empty slots
+    // suggest next available ID
+    const used = new Set();
+    for (const row of _scheme) for (const v of row) if (v > 0) used.add(v);
+    let suggest = 1;
+    while (used.has(suggest)) suggest++;
+    const raw = window.prompt(`Cell ID to place at (row ${r+1}, col ${c+1}):`, String(suggest));
+    if (raw === null) return;
+    const id = parseInt(raw, 10);
+    if (!id || id < 1) { alert('Invalid cell ID.'); return; }
+    if (used.has(id)) { alert(`Cell ID ${id} already exists.`); return; }
+    _scheme[r][c] = id;
+    renderSchemeCanvas(); _validateSchemeUI(); _saveSchemeDebounced();
+    return;
+  }
+
+  // ── Group / Cell drag modes ────────────────────────────────────────
   const v = _scheme[r][c];
   if (v === 0) return;  // only drag non-empty cells
 
-  // Collect cells to drag: single cell or whole group
   const cpg = _schemeCpg || 1;
   _dragGroupCells = [];
-  if (_dragModeGroup) {
+  if (_dragMode === 'group') {
     const grp = Math.floor((v - 1) / cpg);
     for (let ri = 0; ri < _schemeRows; ri++)
       for (let ci = 0; ci < _schemeCols; ci++) {
@@ -1028,7 +1075,6 @@ function _onSchemeMouseDown(e) {
 
   const canvas = document.getElementById("schemeCanvas");
   canvas.style.cursor = "grabbing";
-  e.preventDefault();
 }
 
 function _onSchemeMouseUp(e) {
@@ -1041,11 +1087,36 @@ function _onSchemeMouseUp(e) {
   const dc = _dragDeltaC;
 
   if (dr === 0 && dc === 0) {
-    // No movement → treat as click (toggle)
+    // No movement → click: shift the whole group left or right
     const [r, c] = _canvasCoords(e);
     if (r >= 0 && r < _schemeRows && c >= 0 && c < _schemeCols) {
-      _scheme[r][c] = _scheme[r][c] === 0 ? -1 : 0;
-      _renumberInPlace("row");
+      const v = _scheme[r][c];
+      if (v > 0) {
+        const cpg = _schemeCpg || 1;
+        const grp = Math.floor((v - 1) / cpg);
+        const groupCells = [];
+        for (let ri = 0; ri < _schemeRows; ri++)
+          for (let ci = 0; ci < _schemeCols; ci++) {
+            const cv = _scheme[ri][ci];
+            if (cv > 0 && Math.floor((cv - 1) / cpg) === grp)
+              groupCells.push({ r: ri, c: ci, v: cv });
+          }
+        const minC = Math.min(...groupCells.map(x => x.c));
+        const maxC = Math.max(...groupCells.map(x => x.c));
+        const dir  = c <= (minC + maxC) / 2 ? 1 : -1;  // click left half → shift right; right half → shift left
+        const canShift = groupCells.every(cell => {
+          const nc = cell.c + dir;
+          if (nc < 0 || nc >= _schemeCols) return false;
+          const occ = _scheme[cell.r][nc];
+          return occ === 0 || Math.floor((occ - 1) / cpg) === grp;
+        });
+        if (canShift) {
+          const next = _scheme.map(row => [...row]);
+          for (const cell of groupCells) next[cell.r][cell.c] = 0;
+          for (const cell of groupCells) next[cell.r][cell.c + dir] = cell.v;
+          _scheme = next;
+        }
+      }
     }
   } else {
     // Check all destination cells are in bounds
@@ -1246,6 +1317,36 @@ function expandScheme(dir) {
   } else if (dir === 'right') {
     _scheme = _scheme.map(row => [...row, 0]);
     _schemeCols++;
+  }
+  renderSchemeCanvas();
+  _validateSchemeUI();
+  _saveSchemeDebounced();
+}
+
+function shrinkScheme(dir) {
+  if (!_scheme) return;
+  const minSize = 1;
+  let borderCells;
+  if (dir === 'top') {
+    if (_schemeRows <= minSize) return;
+    borderCells = _scheme[0].filter(v => v !== 0);
+    if (borderCells.length > 0 && !confirm(`Top row has ${borderCells.length} cell(s). Remove anyway?`)) return;
+    _scheme.shift(); _schemeRows--;
+  } else if (dir === 'bottom') {
+    if (_schemeRows <= minSize) return;
+    borderCells = _scheme[_schemeRows - 1].filter(v => v !== 0);
+    if (borderCells.length > 0 && !confirm(`Bottom row has ${borderCells.length} cell(s). Remove anyway?`)) return;
+    _scheme.pop(); _schemeRows--;
+  } else if (dir === 'left') {
+    if (_schemeCols <= minSize) return;
+    borderCells = _scheme.map(r => r[0]).filter(v => v !== 0);
+    if (borderCells.length > 0 && !confirm(`Left column has ${borderCells.length} cell(s). Remove anyway?`)) return;
+    _scheme = _scheme.map(r => r.slice(1)); _schemeCols--;
+  } else if (dir === 'right') {
+    if (_schemeCols <= minSize) return;
+    borderCells = _scheme.map(r => r[_schemeCols - 1]).filter(v => v !== 0);
+    if (borderCells.length > 0 && !confirm(`Right column has ${borderCells.length} cell(s). Remove anyway?`)) return;
+    _scheme = _scheme.map(r => r.slice(0, -1)); _schemeCols--;
   }
   renderSchemeCanvas();
   _validateSchemeUI();
