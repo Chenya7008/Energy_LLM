@@ -413,6 +413,19 @@ function updateStatePanel(data) {
     state.cell_subtype ? _subtypeLabel(state.cell_subtype) : null,
     false);
 
+  // Sync selected cell badge
+  const sc = state.selected_cell;
+  _updateSelectedCellBadge(sc ? sc.brand : null, sc ? sc.model : null);
+
+  // Auto-fetch suggestions when subtype is set to a cylindrical format
+  if (state.cell_subtype && CYLINDRICAL_FF && CYLINDRICAL_FF.has(state.cell_subtype)) {
+    if (state.cell_subtype !== _lastSuggSubtype) {
+      fetchCellSuggestions(state.cell_subtype);
+    }
+  } else if (!state.cell_subtype) {
+    _hideCellSuggestions();
+  }
+
   renderParam("total_cells",     state.total_cells,    false);
   renderParam("num_groups",      state.num_groups,     true);
   renderParam("cells_per_group", state.cells_per_group,true);
@@ -622,8 +635,10 @@ async function onCellTypeChange() {
     subtypeRow.style.display = "none";
   }
 
+  _hideCellSuggestions();
   // Clear subtype in state when type changes
   await post("/update-slot", { slot: "cell_subtype", value: "" });
+  await post("/clear-cell");
   // Save the new type
   if (typeVal) {
     const res = await post("/update-slot", { slot: "cell_type", value: typeVal });
@@ -631,6 +646,117 @@ async function onCellTypeChange() {
       state: res.state, missing_slots: res.missing_slots,
       conflicts: res.conflicts, derived: res.derived, template_matches: [],
     });
+  }
+}
+
+async function onCellSubtypeChange(value) {
+  await manualUpdateSlot("cell_subtype", value);
+  if (value) {
+    await fetchCellSuggestions(value);
+  } else {
+    _hideCellSuggestions();
+  }
+}
+
+// ── Cell DB suggestions ───────────────────────────────────────────────
+
+const CYLINDRICAL_FF = new Set(["18650", "21700", "4680", "26650", "14500"]);
+let _cellSuggCache = [];   // full list for current subtype
+let _lastSuggSubtype = ""; // avoid redundant fetches
+
+async function fetchCellSuggestions(subtype) {
+  if (!CYLINDRICAL_FF.has(subtype)) { _hideCellSuggestions(); return; }
+  if (subtype === _lastSuggSubtype && _cellSuggCache.length > 0) {
+    _showCellSuggestions(_cellSuggCache);
+    return;
+  }
+  try {
+    const res = await get(`/cell-suggestions?subtype=${encodeURIComponent(subtype)}`);
+    _cellSuggCache    = res.cells || [];
+    _lastSuggSubtype  = subtype;
+    _showCellSuggestions(_cellSuggCache);
+  } catch (e) {
+    console.warn("cell-suggestions fetch failed:", e);
+  }
+}
+
+function _showCellSuggestions(cells) {
+  const sec = document.getElementById("cellSuggestionsSection");
+  if (!sec) return;
+  sec.style.display = "";
+  document.getElementById("cellSuggFilter").value = "";
+  _renderCellList(cells);
+}
+
+function _hideCellSuggestions() {
+  const sec = document.getElementById("cellSuggestionsSection");
+  if (sec) sec.style.display = "none";
+  _cellSuggCache = [];
+  _lastSuggSubtype = "";
+}
+
+function filterCellSuggestions(query) {
+  const q = query.toLowerCase();
+  const filtered = q
+    ? _cellSuggCache.filter(c =>
+        c.brand.toLowerCase().includes(q) || c.model.toLowerCase().includes(q))
+    : _cellSuggCache;
+  _renderCellList(filtered);
+}
+
+function _renderCellList(cells) {
+  const list = document.getElementById("cellSuggList");
+  if (!list) return;
+  if (!cells.length) {
+    list.innerHTML = `<div class="cell-sugg-empty">No cells found</div>`;
+    return;
+  }
+  list.innerHTML = cells.map(c => {
+    const cap = c.capacity_mah ? `${c.capacity_mah}mAh` : "—";
+    const nom = c.nominal_v    ? `${c.nominal_v}V`      : "";
+    const disch = c.max_discharge_ma ? `${(c.max_discharge_ma/1000).toFixed(1)}A max` : "";
+    const meta = [cap, nom, disch].filter(Boolean).join(" · ");
+    return `
+      <div class="cell-sugg-item" data-brand="${escHtml(c.brand)}" data-model="${escHtml(c.model)}">
+        <div class="cell-sugg-name">${escHtml(c.brand)} <strong>${escHtml(c.model)}</strong></div>
+        <div class="cell-sugg-meta">${escHtml(meta)}</div>
+      </div>`;
+  }).join("");
+  list.querySelectorAll(".cell-sugg-item").forEach(el => {
+    el.addEventListener("click", () => selectCell(el.dataset.brand, el.dataset.model));
+  });
+}
+
+async function selectCell(brand, model) {
+  try {
+    const res = await post("/select-cell", { brand, model });
+    if (res.error) { appendMsg("system", `❌ ${res.error}`); return; }
+    _updateSelectedCellBadge(brand, model);
+    // Highlight in list
+    document.querySelectorAll(".cell-sugg-item").forEach(el => {
+      el.classList.toggle("selected", el.dataset.brand === brand && el.dataset.model === model);
+    });
+    appendMsg("ai", `✅ Cell selected: **${brand} ${model}** — specs added to constants.h`);
+  } catch (e) {
+    appendMsg("system", `❌ select-cell failed: ${e.message}`);
+  }
+}
+
+async function clearCellSelection() {
+  await post("/clear-cell");
+  _updateSelectedCellBadge(null, null);
+  document.querySelectorAll(".cell-sugg-item").forEach(el => el.classList.remove("selected"));
+}
+
+function _updateSelectedCellBadge(brand, model) {
+  const badge = document.getElementById("selectedCellBadge");
+  if (!badge) return;
+  if (brand && model) {
+    badge.textContent = `✓ Selected: ${brand} ${model}`;
+    badge.style.display = "";
+  } else {
+    badge.style.display = "none";
+    badge.textContent = "";
   }
 }
 

@@ -123,10 +123,22 @@
         </div>
         <div class="param-value" id="val-cell_subtype">—</div>
         <div class="param-edit">
-          <select id="input-cell_subtype" onchange="manualUpdateSlot('cell_subtype', this.value)">
+          <select id="input-cell_subtype" onchange="onCellSubtypeChange(this.value)">
             <option value="">Select format…</option>
           </select>
         </div>
+      </div>
+
+      <!-- Cell DB suggestions (auto-shown for cylindrical subtypes) -->
+      <div id="cellSuggestionsSection" class="cell-sugg-section" style="display:none">
+        <div class="cell-sugg-header">
+          <span>📋 Cell Database</span>
+          <input type="text" id="cellSuggFilter" placeholder="Filter brand / model…"
+                 oninput="filterCellSuggestions(this.value)" class="cell-sugg-filter"/>
+          <button class="btn-ghost" onclick="clearCellSelection()" title="Clear selected cell">✕ Clear</button>
+        </div>
+        <div id="selectedCellBadge" class="selected-cell-badge" style="display:none"></div>
+        <div id="cellSuggList" class="cell-sugg-list"></div>
       </div>
 
       <div class="param-section-title" style="margin-top:10px">Cell Layout</div>

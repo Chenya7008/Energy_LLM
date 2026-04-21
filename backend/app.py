@@ -21,6 +21,7 @@ Endpoints:
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import os
+import csv as _csv
 import json
 import re
 import traceback
@@ -28,9 +29,73 @@ import traceback
 from battery_manager import BatteryManager
 
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
+CSV_PATH = os.path.join(os.path.dirname(__file__), "secondlifestorage-com-2026-04-20-2.csv")
 
 app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
 CORS(app)
+
+# ── Cell database (loaded from CSV) ──────────────────────────────────
+_cell_db: list = []
+
+# Formfactor values that map directly to cylindrical cell subtypes
+_CYLINDRICAL_FF = {"18650", "21700", "4680", "26650", "14500"}
+
+
+def _parse_cell_text(text: str) -> dict:
+    specs = {}
+    m = re.search(r"(\d+(?:\.\d+)?)mAh\s+Rated", text, re.IGNORECASE)
+    if m:
+        specs["capacity_mah"] = float(m.group(1))
+    m = re.search(r"(\d+\.\d+)V\s+Nominal", text, re.IGNORECASE)
+    if m:
+        specs["nominal_v"] = float(m.group(1))
+
+    cm = re.search(r"Charging:(.*?)(?=\n[A-Za-z][a-zA-Z]+:|\Z)", text, re.DOTALL | re.IGNORECASE)
+    if cm:
+        cs = cm.group(1)
+        mv = re.search(r"(\d+\.\d+)V\s+Maximum", cs)
+        if mv:
+            specs["max_charge_v"] = float(mv.group(1))
+        all_ma = re.findall(r"(\d+(?:\.\d+)?)mA\s+Maximum", cs)
+        if all_ma:
+            specs["max_charge_ma"] = float(all_ma[-1])
+
+    dm = re.search(r"Discharging:(.*?)(?=\n[A-Za-z][a-zA-Z]+:|\Z)", text, re.DOTALL | re.IGNORECASE)
+    if dm:
+        ds = dm.group(1)
+        mv = re.search(r"(\d+\.\d+)V\s+Cutoff", ds)
+        if mv:
+            specs["cutoff_v"] = float(mv.group(1))
+        all_ma = re.findall(r"(\d+(?:\.\d+)?)mA\s+Maximum", ds)
+        if all_ma:
+            specs["max_discharge_ma"] = float(all_ma[-1])
+
+    return specs
+
+
+def _load_cell_db():
+    global _cell_db
+    try:
+        with open(CSV_PATH, encoding="utf-8-sig") as f:
+            reader = _csv.DictReader(f)
+            rows = []
+            for r in reader:
+                if not r.get("brand"):
+                    continue
+                rows.append({
+                    "brand":      r["brand"].strip(),
+                    "model":      r["model"].strip(),
+                    "formfactor": r["formfactor"].strip(),
+                    "specs":      _parse_cell_text(r.get("text_0", "")),
+                })
+            _cell_db = rows
+        print(f"  Cell DB loaded: {len(_cell_db)} cells")
+    except Exception as e:
+        print(f"  Warning: Could not load cell DB: {e}")
+        _cell_db = []
+
+
+_load_cell_db()
 
 
 @app.route("/")
@@ -459,6 +524,50 @@ def reset_scheme():
     _battery.clear_user_scheme()
     scheme = _battery.get_scheme()
     return jsonify({"success": True, "scheme": scheme})
+
+
+# ── Cell database endpoints ───────────────────────────────────────────
+
+@app.route("/api/cell-suggestions", methods=["GET"])
+def cell_suggestions():
+    subtype = request.args.get("subtype", "").strip()
+    if subtype not in _CYLINDRICAL_FF:
+        return jsonify({"cells": []})
+    cells = [c for c in _cell_db if c["formfactor"] == subtype]
+    # Return brand, model, formfactor, and key specs for display
+    result = []
+    for c in cells:
+        sp = c["specs"]
+        result.append({
+            "brand":      c["brand"],
+            "model":      c["model"],
+            "formfactor": c["formfactor"],
+            "capacity_mah":      sp.get("capacity_mah"),
+            "nominal_v":         sp.get("nominal_v"),
+            "max_charge_v":      sp.get("max_charge_v"),
+            "cutoff_v":          sp.get("cutoff_v"),
+            "max_charge_ma":     sp.get("max_charge_ma"),
+            "max_discharge_ma":  sp.get("max_discharge_ma"),
+        })
+    return jsonify({"cells": result})
+
+
+@app.route("/api/select-cell", methods=["POST"])
+def select_cell():
+    data  = request.json or {}
+    brand = data.get("brand", "").strip()
+    model = data.get("model", "").strip()
+    cell  = next((c for c in _cell_db if c["brand"] == brand and c["model"] == model), None)
+    if not cell:
+        return jsonify({"error": f"Cell not found: {brand} {model}"}), 404
+    _battery.set_selected_cell(brand, model, cell["specs"])
+    return jsonify({"success": True, "state": _battery.state})
+
+
+@app.route("/api/clear-cell", methods=["POST"])
+def clear_cell():
+    _battery.clear_selected_cell()
+    return jsonify({"success": True, "state": _battery.state})
 
 
 if __name__ == "__main__":
