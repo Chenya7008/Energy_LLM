@@ -41,12 +41,12 @@ echo    Skipping installation -- using existing packages.
 echo.
 echo [3/3] Starting backend server...
 echo.
-echo   Open in browser: http://127.0.0.1:5000
+echo   Open in browser: http://127.0.0.1:8080
 echo   Press Ctrl+C to stop
 echo  =====================================================
 echo.
 
-start /b cmd /c "timeout /t 2 /nobreak >nul && start http://127.0.0.1:5000"
+start /b cmd /c "timeout /t 2 /nobreak >nul && start http://127.0.0.1:8080"
 
 python backend\app.py
 pause
