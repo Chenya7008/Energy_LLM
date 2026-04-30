@@ -1,6 +1,6 @@
 #!/bin/bash
 # Energy LLM — Battery Pack Configurator
-# macOS / Linux 一键启动脚本
+# macOS / Linux one-click launcher
 
 echo ""
 echo " ====================================================="
@@ -8,47 +8,63 @@ echo "  Energy LLM | Battery Pack Configurator"
 echo " ====================================================="
 echo ""
 
-# 检查 Python
+# Check for Python
 if command -v python3 &>/dev/null; then
     PYTHON=python3
 elif command -v python &>/dev/null; then
     PYTHON=python
 else
-    echo "❌ 未找到 Python，请先安装 Python 3："
+    echo "X  Python not found. Please install Python 3:"
     echo "   macOS: brew install python"
-    echo "   或访问 https://www.python.org/downloads/"
+    echo "   or visit https://www.python.org/downloads/"
     exit 1
 fi
 
 echo "[1/3] Python: $($PYTHON --version)"
 
-# 创建虚拟环境（如不存在）
+# Create virtual environment if it doesn't exist
 VENV_DIR="$(dirname "$0")/.venv"
 if [ ! -d "$VENV_DIR" ]; then
-    echo "[2/3] 创建虚拟环境并安装依赖..."
+    echo "[2/3] Creating virtual environment..."
     $PYTHON -m venv "$VENV_DIR"
-else
-    echo "[2/3] 安装 Python 依赖..."
 fi
 
-# 激活虚拟环境并安装依赖
 source "$VENV_DIR/bin/activate"
-pip install -r backend/requirements.txt -q
 
-# 自动打开浏览器（后台延迟打开，等 Flask 启动）
-echo "[3/3] 启动后端服务..."
+# Ask user before installing dependencies
 echo ""
-echo "  浏览器访问: http://127.0.0.1:8080"
-echo "  按 Ctrl+C 停止服务"
+read -r -p "[2/3] Install / update Python dependencies from requirements.txt? [Y/n] " REPLY
+echo ""
+REPLY="${REPLY:-Y}"
+if [[ "$REPLY" =~ ^[Yy] ]]; then
+    pip install -r backend/requirements.txt
+    if [ $? -ne 0 ]; then
+        echo ""
+        echo "X  Dependency installation failed."
+        echo "   Check the error above, then re-run this script."
+        exit 1
+    fi
+    echo ""
+    echo "   Dependencies installed successfully."
+else
+    echo "   Skipping installation — using existing packages."
+fi
+
+# Start backend
+echo ""
+echo "[3/3] Starting backend server..."
+echo ""
+echo "  Open in browser: http://127.0.0.1:8080"
+echo "  Press Ctrl+C to stop"
 echo " ====================================================="
 echo ""
 
-# macOS 用 open，Linux 用 xdg-open
+# Open browser after Flask starts (macOS: open, Linux: xdg-open)
 (sleep 2 && \
     if [[ "$OSTYPE" == "darwin"* ]]; then
         open http://127.0.0.1:8080
     elif command -v xdg-open &>/dev/null; then
-        xdg-open http://127.0.0.1:5000
+        xdg-open http://127.0.0.1:8080
     fi
 ) &
 

@@ -1,21 +1,21 @@
 """
 Flask backend for the Energy LLM Battery Configurator.
 
-支持多平台 LLM：
+Supports multiple LLM providers:
   - Anthropic (Claude)
   - OpenAI (GPT)
   - DeepSeek (OpenAI-compatible)
-  - 任意 OpenAI 兼容接口（自定义 Base URL）
+  - Any OpenAI-compatible endpoint (custom Base URL)
 
 Endpoints:
-  POST /api/set-token        — 保存 API Key、平台、模型
-  GET  /api/state            — 当前电池配置状态
-  POST /api/chat             — 发送消息 → LLM → BatteryManager
-  POST /api/update-slot      — 通过 UI 手动填写槽位
-  POST /api/apply-template   — 应用模板
-  GET  /api/templates        — 获取所有模板
-  POST /api/generate-header  — 生成 constants.h
-  POST /api/reset            — 重置状态和对话历史
+  POST /api/set-token        — Save API key, provider, and model
+  GET  /api/state            — Get current battery configuration state
+  POST /api/chat             — Send message → LLM → BatteryManager
+  POST /api/update-slot      — Manually fill a slot from the UI
+  POST /api/apply-template   — Apply a template
+  GET  /api/templates        — List all available templates
+  POST /api/generate-header  — Generate constants.h
+  POST /api/reset            — Reset state and conversation history
 """
 
 from flask import Flask, request, jsonify, send_from_directory
@@ -107,11 +107,11 @@ def index():
 _api_token: str = ""
 _provider: str = "anthropic"   # anthropic | openai | deepseek | gemini | custom
 _model: str = "claude-sonnet-4-6"
-_base_url: str = ""            # 仅 custom 时使用
+_base_url: str = ""            # used only for custom provider
 _battery: BatteryManager = BatteryManager()
 _history: list = []
 
-# ── 各平台默认模型 ────────────────────────────────────────────────────
+# ── Default models per provider ──────────────────────────────────────
 PROVIDER_DEFAULTS = {
     "anthropic": "claude-sonnet-4-6",
     "openai":    "gpt-4o",
@@ -186,10 +186,10 @@ Output ONLY a valid JSON object. No markdown fences, no explanation, no extra te
 }"""
 
 
-# ── LLM 调用（多平台统一入口）─────────────────────────────────────────
+# ── LLM call (unified entry point for all providers) ─────────────────
 
 def _call_llm(user_message: str) -> str:
-    """根据当前 _provider 调用对应平台，返回原始文本。"""
+    """Call the currently active provider and return the raw response text."""
 
     if _provider == "anthropic":
         import anthropic as _anthropic
@@ -207,15 +207,15 @@ def _call_llm(user_message: str) -> str:
         from google.genai import types
         client = genai.Client(api_key=_api_token)
 
-        # 把历史对话转成 Gemini Content 格式
+        # Convert conversation history to Gemini Content format
         gemini_history = []
-        for msg in _history[:-1]:   # 除最后一条 user message
+        for msg in _history[:-1]:   # all messages except the latest user turn
             role = "user" if msg["role"] == "user" else "model"
             gemini_history.append(
                 types.Content(role=role, parts=[types.Part(text=msg["content"])])
             )
 
-        # 最新 user message
+        # Latest user message
         latest = _history[-1]["content"]
 
         response = client.models.generate_content(
@@ -231,7 +231,7 @@ def _call_llm(user_message: str) -> str:
         return response.text
 
     else:
-        # OpenAI / DeepSeek / Custom — 全部走 openai 兼容接口
+        # OpenAI / DeepSeek / Custom — all use the OpenAI-compatible endpoint
         from openai import OpenAI
         kwargs = {"api_key": _api_token}
 
@@ -242,7 +242,7 @@ def _call_llm(user_message: str) -> str:
 
         client = OpenAI(**kwargs)
 
-        # 把 system prompt 拼入 messages（OpenAI 格式）
+        # Prepend system prompt to messages (OpenAI format)
         messages = [{"role": "system", "content": SYSTEM_PROMPT}] + _history
 
         response = client.chat.completions.create(
@@ -253,13 +253,13 @@ def _call_llm(user_message: str) -> str:
         return response.choices[0].message.content
 
 
-# ── 工具函数 ──────────────────────────────────────────────────────────
+# ── Utility functions ─────────────────────────────────────────────────
 
 def _extract_json(text: str) -> dict:
     text = text.strip()
     text = re.sub(r"^```(?:json)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
-    # 有时模型会在 JSON 前后加文字，尝试提取 {...}
+    # Models sometimes add surrounding text — try extracting the {...} block
     try:
         return json.loads(text)
     except json.JSONDecodeError:
@@ -323,7 +323,7 @@ def _format_chat_reply(result: dict, llm_json: dict) -> str:
     return "\n\n".join(parts)
 
 
-# ── API 路由 ──────────────────────────────────────────────────────────
+# ── API routes ──────────────────────────────────────────────────────────
 
 @app.route("/api/set-token", methods=["POST"])
 def set_token():
@@ -367,12 +367,12 @@ def chat():
     global _history
 
     if not _api_token:
-        return jsonify({"error": "请先设置 API Token。"}), 401
+        return jsonify({"error": "API token not set. Please connect first."}), 401
 
     data = request.json or {}
     user_message = data.get("message", "").strip()
     if not user_message:
-        return jsonify({"error": "消息不能为空"}), 400
+        return jsonify({"error": "Message cannot be empty"}), 400
 
     _history.append({"role": "user", "content": user_message})
 
@@ -380,10 +380,10 @@ def chat():
         raw = _call_llm(user_message)
         _history.append({"role": "assistant", "content": raw})
     except Exception as e:
-        _history.pop()   # 回滚 user message
-        # 打印完整堆栈到控制台，方便调试
+        _history.pop()   # roll back user message on LLM failure
+        # Print full traceback to console for debugging
         traceback.print_exc()
-        # 直接把原始错误返回给前端，不做关键词猜测
+        # Return the raw error to the frontend without keyword guessing
         err_type = type(e).__name__
         err_msg  = str(e)
         return jsonify({"error": f"[{_provider}] {err_type}: {err_msg}"}), 500
@@ -391,7 +391,7 @@ def chat():
     try:
         llm_json = _extract_json(raw)
     except (json.JSONDecodeError, ValueError) as e:
-        return jsonify({"error": f"LLM 返回了非 JSON 内容: {e}", "raw": raw}), 500
+        return jsonify({"error": f"LLM returned non-JSON content: {e}", "raw": raw}), 500
 
     result = _battery.process_llm_json(llm_json)
     chat_reply = _format_chat_reply(result, llm_json)
@@ -419,7 +419,7 @@ def update_slot():
                     "total_cells","num_groups","cells_per_group",
                     "cooling_type","coolant_channels","coolant_size",
                     "layout_pattern","corner_size"]:
-        return jsonify({"error": f"未知槽位: {slot}"}), 400
+        return jsonify({"error": f"Unknown slot: {slot}"}), 400
 
     result = _battery.update_slot(slot, value)
     return jsonify({

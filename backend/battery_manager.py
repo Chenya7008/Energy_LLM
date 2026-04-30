@@ -443,20 +443,20 @@ class BatteryManager:
 
     def _generate_scheme(self) -> Optional[dict]:
         """
-        返回 scheme 数组及其元信息，供 generate_header() 使用。
+        Return the scheme array and its metadata for use by generate_header().
 
-        返回结构：
+        Return structure:
           {
             "source": "standard" | "preset",
             "rows": int, "cols": int,
             "data": [[int, ...]],
-            "description": str   # 仅 preset 有
+            "description": str   # preset only
           }
 
-        三种情况：
-          1. standard / fully_filled → 顺序编号矩形，dims = [num_groups][cells_per_group]
-          2. with_gaps + 找到预设 → 从 scheme_presets.json 读取
-          3. with_gaps + 无预设 → 返回 None，提示用户手动填写
+        Three cases:
+          1. standard / fully_filled → sequential rectangular grid, dims = [num_groups][cells_per_group]
+          2. with_gaps + preset found → loaded from scheme_presets.json
+          3. with_gaps + no preset   → returns None, user must define manually
         """
         g = self.state["num_groups"]
         c = self.state["cells_per_group"]
@@ -582,7 +582,7 @@ class BatteryManager:
         self.__init__()
 
     def _clear_slots(self):
-        """清空所有参数槽位（保留 constraints），用于 custom 意图开始新配置。"""
+        """Clear all parameter slots (keeping constraints) when starting a new custom configuration."""
         for key in ALL_NUMERIC_SLOTS:
             self.state[key] = None
         for key in ALL_STRING_SLOTS:
@@ -671,7 +671,7 @@ class BatteryManager:
         layout = llm_json.get("layout_features", {})
         reasoning = llm_json.get("llm_reasoning", {})
 
-        # custom 意图 = 全新描述，先清空所有槽位，避免旧状态（如模板）干扰
+        # custom intent = brand-new description; clear all slots to avoid stale state from prior templates
         self._clear_slots()
 
         # Parse physical constraints out of the "junk drawer"
@@ -679,7 +679,7 @@ class BatteryManager:
         constraints = self._parse_constraints(assumptions)
         self.state["constraints"].update(constraints)
 
-        # custom 意图用 override=True，让 LLM 提取的值直接写入
+        # custom intent uses override=True so LLM-extracted values are written directly
         msgs = self._apply_params(params, is_override=True)
 
         if layout.get("pattern"):

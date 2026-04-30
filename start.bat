@@ -7,26 +7,45 @@ echo   Energy LLM ^| Battery Pack Configurator
 echo  =====================================================
 echo.
 
-echo [1/3] 检查 Python...
+echo [1/3] Checking Python...
 python --version
 if errorlevel 1 (
-    echo X 未找到 Python，请先安装 Python 3
-    echo   https://www.python.org/downloads/
+    echo X  Python not found. Please install Python 3:
+    echo    https://www.python.org/downloads/
     pause
     exit /b 1
 )
 
-echo [2/3] 安装 Python 依赖...
-pip install -r backend\requirements.txt -q
-
-echo [3/3] 启动后端服务...
 echo.
-echo   浏览器访问: http://127.0.0.1:5000
-echo   按 Ctrl+C 停止服务
+set /p REPLY=[2/3] Install / update Python dependencies from requirements.txt? [Y/n]:
+if /i "%REPLY%"=="" set REPLY=Y
+if /i "%REPLY%"=="n" goto skip_install
+
+echo.
+pip install -r backend\requirements.txt
+if errorlevel 1 (
+    echo.
+    echo X  Dependency installation failed.
+    echo    Check the error above, then re-run this script.
+    pause
+    exit /b 1
+)
+echo.
+echo    Dependencies installed successfully.
+goto after_install
+
+:skip_install
+echo    Skipping installation -- using existing packages.
+
+:after_install
+echo.
+echo [3/3] Starting backend server...
+echo.
+echo   Open in browser: http://127.0.0.1:5000
+echo   Press Ctrl+C to stop
 echo  =====================================================
 echo.
 
-:: 延迟 2 秒后自动打开浏览器
 start /b cmd /c "timeout /t 2 /nobreak >nul && start http://127.0.0.1:5000"
 
 python backend\app.py
